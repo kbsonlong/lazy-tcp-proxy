@@ -36,6 +36,7 @@ type TargetInfo struct {
 type TargetHandler interface {
 	RegisterTarget(info TargetInfo)
 	RemoveTarget(containerID string)
+	ContainerStopped(containerID string)
 }
 
 // Manager wraps the Docker client with proxy-specific logic.
@@ -401,6 +402,7 @@ func (m *Manager) WatchEvents(ctx context.Context, handler TargetHandler) {
 				case "die":
 					name := msg.Actor.Attributes["name"]
 					log.Printf("docker: event: container stopped: %s (still registered)", name)
+					handler.ContainerStopped(msg.Actor.ID)
 
 				case "destroy":
 					name := msg.Actor.Attributes["name"]

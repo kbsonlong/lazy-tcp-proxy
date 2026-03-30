@@ -26,6 +26,7 @@ type targetState struct {
 	listener    net.Listener
 	lastActive  time.Time
 	activeConns atomic.Int32
+	running     bool
 	removed     bool
 }
 
@@ -54,6 +55,7 @@ func (s *ProxyServer) RegisterTarget(info docker.TargetInfo) {
 		if existing, ok := s.targets[m.ListenPort]; ok {
 			existing.info = info
 			existing.targetPort = m.TargetPort
+			existing.running = true
 			existing.removed = false
 			log.Printf("proxy: updated target %s on port %d->%d", info.ContainerName, m.ListenPort, m.TargetPort)
 			continue
@@ -70,6 +72,7 @@ func (s *ProxyServer) RegisterTarget(info docker.TargetInfo) {
 			targetPort: m.TargetPort,
 			listener:   ln,
 			lastActive: time.Now(),
+			running:    true,
 		}
 		s.targets[m.ListenPort] = ts
 		log.Printf("proxy: registered target %s, listening on port %d->%d", info.ContainerName, m.ListenPort, m.TargetPort)
@@ -88,6 +91,18 @@ func (s *ProxyServer) RemoveTarget(containerID string) {
 			ts.removed = true
 			ts.listener.Close()
 			delete(s.targets, port)
+		}
+	}
+}
+
+// ContainerStopped marks all port mappings for the given container as stopped
+// so the inactivity checker does not issue further stop calls.
+func (s *ProxyServer) ContainerStopped(containerID string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, ts := range s.targets {
+		if ts.info.ContainerID == containerID {
+			ts.running = false
 		}
 	}
 }
@@ -133,7 +148,7 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 			byContainer[ts.info.ContainerID] = e
 		}
 		e.states = append(e.states, ts)
-		if ts.activeConns.Load() > 0 || time.Since(ts.lastActive) < idleTimeout {
+		if !ts.running || ts.activeConns.Load() > 0 || time.Since(ts.lastActive) < idleTimeout {
 			e.allIdle = false
 		}
 	}
@@ -142,11 +157,10 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 			if err := s.docker.StopContainer(ctx, e.containerID); err != nil {
 				log.Printf("proxy: inactivity: error stopping %s: %v", e.name, err)
 			} else {
-				// Reset lastActive so the checker backs off for a full idleTimeout
-				// before attempting to stop this container again.
-				now := time.Now()
+				// Mark as stopped immediately; the "die" event will also call
+				// ContainerStopped, but this covers the window before it arrives.
 				for _, ts := range e.states {
-					ts.lastActive = now
+					ts.running = false
 				}
 			}
 		}
