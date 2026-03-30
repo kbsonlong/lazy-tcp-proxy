@@ -3,10 +3,10 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -a -trimpath -o lazy-tpc-proxy .
+RUN CGO_ENABLED=0 GOOS=linux go build -a -trimpath -o lazy-tcp-proxy .
 
 FROM scratch
-COPY --from=builder /app/lazy-tpc-proxy /lazy-tpc-proxy
+COPY --from=builder /app/lazy-tcp-proxy /lazy-tcp-proxy
 ENV DOCKER_SOCK=/var/run/docker.sock
 VOLUME ["/var/run/docker.sock"]
-ENTRYPOINT ["/lazy-tpc-proxy"]
+ENTRYPOINT ["/lazy-tcp-proxy"]

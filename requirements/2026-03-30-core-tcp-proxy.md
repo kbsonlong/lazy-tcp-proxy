@@ -21,8 +21,8 @@ Running all Docker containers simultaneously wastes resources. A lazy-loading pr
 ## User Experience Requirements
 
 - Users opt-in containers by adding Docker labels:
-  - `lazy-tpc-proxy.enabled=true` — marks the container as a proxy target.
-  - `lazy-tpc-proxy.port=<N>` — the port inside the container to proxy to. The proxy also listens on this port.
+  - `lazy-tcp-proxy.enabled=true` — marks the container as a proxy target.
+  - `lazy-tcp-proxy.port=<N>` — the port inside the container to proxy to. The proxy also listens on this port.
 - No manual proxy configuration is required.
 - Conflicting port mappings (two containers claiming the same port) are ignored for now.
 
@@ -35,12 +35,12 @@ Running all Docker containers simultaneously wastes resources. A lazy-loading pr
 - Bidirectional TCP proxying via `io.Copy` goroutines.
 - Container readiness checked by retrying a TCP dial (up to 30 attempts, 1 s apart).
 - Own container ID detected from `/proc/self/cgroup` (with fallback to `/etc/hostname`) for network auto-join.
-- Docker events subscription filters by label `lazy-tpc-proxy.enabled=true` and event types `create`, `start`, `die`.
+- Docker events subscription filters by label `lazy-tcp-proxy.enabled=true` and event types `create`, `start`, `die`.
 - Event watcher reconnects with exponential backoff (max 30 s) on error.
 
 ## Acceptance Criteria
 
-- [x] Proxy listens on the port declared in `lazy-tpc-proxy.port`.
+- [x] Proxy listens on the port declared in `lazy-tcp-proxy.port`.
 - [x] Connecting to the proxy port starts the target container if stopped.
 - [x] Connection is forwarded to the container's internal IP once it is running.
 - [x] Container is stopped after 2 minutes with no active connections.
@@ -55,8 +55,8 @@ None — this is the foundational requirement.
 
 ## Implementation Notes
 
-- Project lives at `lazy-tpc-proxy/` within the repo root.
-- Module path: `github.com/nickgrealy/lazy-tpc-proxy`.
+- Project lives at `lazy-tcp-proxy/` within the repo root.
+- Module path: `github.com/nickgrealy/lazy-tcp-proxy`.
 - Key files:
   - `main.go` — wiring, signal handling, goroutine lifecycle.
   - `internal/docker/manager.go` — all Docker API interactions.

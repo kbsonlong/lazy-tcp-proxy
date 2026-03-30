@@ -7,13 +7,13 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/nickgrealy/lazy-tpc-proxy/internal/docker"
-	"github.com/nickgrealy/lazy-tpc-proxy/internal/proxy"
+	"github.com/nickgrealy/lazy-tcp-proxy/internal/docker"
+	"github.com/nickgrealy/lazy-tcp-proxy/internal/proxy"
 )
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
-	log.Println("lazy-tpc-proxy starting")
+	log.Println("lazy-tcp-proxy starting")
 
 	// Root context cancelled on shutdown signal
 	ctx, cancel := context.WithCancel(context.Background())
@@ -53,7 +53,7 @@ func main() {
 		srv.RunInactivityChecker(ctx)
 	}()
 
-	log.Println("lazy-tpc-proxy running; waiting for shutdown signal")
+	log.Println("lazy-tcp-proxy running; waiting for shutdown signal")
 	<-ctx.Done()
-	log.Println("lazy-tpc-proxy stopped")
+	log.Println("lazy-tcp-proxy stopped")
 }

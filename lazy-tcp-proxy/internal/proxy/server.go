@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/nickgrealy/lazy-tpc-proxy/internal/docker"
+	"github.com/nickgrealy/lazy-tcp-proxy/internal/docker"
 )
 
 const (
@@ -20,9 +20,10 @@ const (
 	inactivityTick = 30 * time.Second
 )
 
-// targetState holds runtime state for a single proxy target.
+// targetState holds runtime state for a single listen-port→container-port mapping.
 type targetState struct {
 	info        docker.TargetInfo
+	targetPort  int
 	listener    net.Listener
 	lastActive  time.Time
 	activeConns atomic.Int32
@@ -45,40 +46,39 @@ func NewServer(d *docker.Manager) *ProxyServer {
 	}
 }
 
-// RegisterTarget adds or updates a target. If a listener for the port does not
-// yet exist it is started in a background goroutine.
+// RegisterTarget adds or updates a target. One listener is created per port mapping.
 func (s *ProxyServer) RegisterTarget(info docker.TargetInfo) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	existing, ok := s.targets[info.Port]
-	if ok {
-		// Update metadata but keep the existing listener.
-		existing.info = info
-		existing.removed = false
-		log.Printf("proxy: updated target %s on port %d", info.ContainerName, info.Port)
-		return
+	for _, m := range info.Ports {
+		if existing, ok := s.targets[m.ListenPort]; ok {
+			existing.info = info
+			existing.targetPort = m.TargetPort
+			existing.removed = false
+			log.Printf("proxy: updated target %s on port %d->%d", info.ContainerName, m.ListenPort, m.TargetPort)
+			continue
+		}
+
+		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", m.ListenPort))
+		if err != nil {
+			log.Printf("proxy: failed to listen on port %d for %s: %v", m.ListenPort, info.ContainerName, err)
+			continue
+		}
+
+		ts := &targetState{
+			info:       info,
+			targetPort: m.TargetPort,
+			listener:   ln,
+			lastActive: time.Now(),
+		}
+		s.targets[m.ListenPort] = ts
+		log.Printf("proxy: registered target %s, listening on port %d->%d", info.ContainerName, m.ListenPort, m.TargetPort)
+		go s.acceptLoop(ts)
 	}
-
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", info.Port))
-	if err != nil {
-		log.Printf("proxy: failed to listen on port %d for %s: %v", info.Port, info.ContainerName, err)
-		return
-	}
-
-	ts := &targetState{
-		info:       info,
-		listener:   ln,
-		lastActive: time.Now(),
-	}
-	s.targets[info.Port] = ts
-
-	log.Printf("proxy: registered target %s, listening on port %d", info.ContainerName, info.Port)
-
-	go s.acceptLoop(ts)
 }
 
-// RemoveTarget marks a target as removed and closes its listener.
+// RemoveTarget closes and removes all listeners for the given container.
 func (s *ProxyServer) RemoveTarget(containerID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -89,7 +89,6 @@ func (s *ProxyServer) RemoveTarget(containerID string) {
 			ts.removed = true
 			ts.listener.Close()
 			delete(s.targets, port)
-			return
 		}
 	}
 }
@@ -117,19 +116,31 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 	}
 	s.mu.RUnlock()
 
+	// Group by container; a container is eligible only when ALL its mappings are idle.
+	type entry struct {
+		containerID string
+		name        string
+		allIdle     bool
+	}
+	byContainer := map[string]*entry{}
 	for _, ts := range snapshot {
 		if ts.removed {
 			continue
 		}
-		if ts.activeConns.Load() > 0 {
-			continue
+		e, ok := byContainer[ts.info.ContainerID]
+		if !ok {
+			e = &entry{containerID: ts.info.ContainerID, name: ts.info.ContainerName, allIdle: true}
+			byContainer[ts.info.ContainerID] = e
 		}
-		if time.Since(ts.lastActive) < idleTimeout {
-			continue
+		if ts.activeConns.Load() > 0 || time.Since(ts.lastActive) < idleTimeout {
+			e.allIdle = false
 		}
-		// Stop the container
-		if err := s.docker.StopContainer(ctx, ts.info.ContainerID); err != nil {
-			log.Printf("proxy: inactivity: error stopping %s: %v", ts.info.ContainerName, err)
+	}
+	for _, e := range byContainer {
+		if e.allIdle {
+			if err := s.docker.StopContainer(ctx, e.containerID); err != nil {
+				log.Printf("proxy: inactivity: error stopping %s: %v", e.name, err)
+			}
 		}
 	}
 }
@@ -146,7 +157,7 @@ func (s *ProxyServer) acceptLoop(ts *targetState) {
 			select {
 			default:
 			}
-			log.Printf("proxy: accept error on port %d: %v", ts.info.Port, err)
+			log.Printf("proxy: accept error on port %d: %v", ts.targetPort, err)
 			return
 		}
 		go s.handleConn(conn, ts)
@@ -160,7 +171,7 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 	ctx := context.Background()
 
 	log.Printf("proxy: new connection to %s (port %d) from %s",
-		ts.info.ContainerName, ts.info.Port, conn.RemoteAddr())
+		ts.info.ContainerName, ts.targetPort, conn.RemoteAddr())
 
 	// Ensure the container is running
 	if err := s.docker.EnsureRunning(ctx, ts.info.ContainerID); err != nil {
@@ -185,7 +196,7 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 			continue
 		}
 
-		addr := fmt.Sprintf("%s:%d", ip, ts.info.Port)
+		addr := fmt.Sprintf("%s:%d", ip, ts.targetPort)
 		upstream, lastErr = net.DialTimeout("tcp", addr, dialInterval)
 		if lastErr == nil {
 			break
@@ -206,7 +217,7 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 		ts.lastActive = time.Now()
 	}()
 
-	log.Printf("proxy: proxying connection to %s:%d", upstream.RemoteAddr(), ts.info.Port)
+	log.Printf("proxy: proxying connection to %s", upstream.RemoteAddr())
 
 	// Bidirectional copy
 	var wg sync.WaitGroup
