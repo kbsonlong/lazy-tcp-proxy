@@ -13,7 +13,23 @@ import (
 	"github.com/nickgrealy/lazy-tcp-proxy/internal/proxy"
 )
 
-const defaultPollInterval = 15 * time.Second
+const (
+	defaultPollInterval = 15 * time.Second
+	defaultIdleTimeout  = 120 * time.Second
+)
+
+func resolveIdleTimeout() time.Duration {
+	raw := os.Getenv("IDLE_TIMEOUT_SECS")
+	if raw == "" {
+		return defaultIdleTimeout
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		log.Printf("IDLE_TIMEOUT_SECS=%q is invalid; using default %s", raw, defaultIdleTimeout)
+		return defaultIdleTimeout
+	}
+	return time.Duration(n) * time.Second
+}
 
 func resolvePollInterval() time.Duration {
 	raw := os.Getenv("POLL_INTERVAL_SECS")
@@ -52,7 +68,9 @@ func main() {
 	}
 
 	// Create the proxy server
-	srv := proxy.NewServer(mgr)
+	idleTimeout := resolveIdleTimeout()
+	log.Printf("idle timeout: %s (set IDLE_TIMEOUT_SECS to override)", idleTimeout)
+	srv := proxy.NewServer(mgr, idleTimeout)
 
 	// Initial discovery of all matching containers
 	log.Println("performing initial container discovery...")
