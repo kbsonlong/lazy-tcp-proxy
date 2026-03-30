@@ -118,6 +118,8 @@ func (m *Manager) Discover(ctx context.Context, handler TargetHandler) error {
 		return fmt.Errorf("listing containers: %w", err)
 	}
 
+	var foundNames []string
+	var allNetworks []string
 	for _, c := range containers {
 		info, err := m.containerToTargetInfo(ctx, c.ID)
 		if err != nil {
@@ -125,11 +127,25 @@ func (m *Manager) Discover(ctx context.Context, handler TargetHandler) error {
 			continue
 		}
 
-		if err := m.JoinNetworks(ctx, info.NetworkIDs); err != nil {
+		joined, err := m.JoinNetworks(ctx, info.NetworkIDs)
+		if err != nil {
 			log.Printf("docker: discover: failed to join networks for %s: %v", info.ContainerName, err)
 		}
+		allNetworks = append(allNetworks, joined...)
 
 		handler.RegisterTarget(info)
+		foundNames = append(foundNames, info.ContainerName)
+	}
+
+	if len(foundNames) == 0 {
+		log.Printf("docker: init: no proxy containers found")
+	} else {
+		log.Printf("docker: init: found containers: %s", strings.Join(foundNames, ", "))
+	}
+	if len(allNetworks) == 0 {
+		log.Printf("docker: init: no networks joined")
+	} else {
+		log.Printf("docker: init: joined networks: %s", strings.Join(allNetworks, ", "))
 	}
 
 	return nil
@@ -169,12 +185,13 @@ func (m *Manager) containerToTargetInfo(ctx context.Context, containerID string)
 }
 
 // JoinNetworks connects the proxy container to each of the provided network IDs
-// if it is not already a member.
-func (m *Manager) JoinNetworks(ctx context.Context, networkIDs []string) error {
+// if it is not already a member. Returns the names of networks newly joined.
+func (m *Manager) JoinNetworks(ctx context.Context, networkIDs []string) ([]string, error) {
 	if m.selfID == "" {
-		return nil
+		return nil, nil
 	}
 
+	var joined []string
 	for _, netID := range networkIDs {
 		// Inspect the network to check current membership
 		netInfo, err := m.cli.NetworkInspect(ctx, netID, types.NetworkInspectOptions{})
@@ -202,10 +219,12 @@ func (m *Manager) JoinNetworks(ctx context.Context, networkIDs []string) error {
 			if !strings.Contains(err.Error(), "already exists") {
 				log.Printf("docker: failed to join network %s: %v", netInfo.Name, err)
 			}
+		} else {
+			joined = append(joined, netInfo.Name)
 		}
 	}
 
-	return nil
+	return joined, nil
 }
 
 // EnsureRunning starts the container if it is not already running.
@@ -319,19 +338,25 @@ func (m *Manager) WatchEvents(ctx context.Context, handler TargetHandler) {
 				backoff = time.Second // reset on success
 				switch msg.Action {
 				case "create", "start":
-					log.Printf("docker: event %s for container %s; re-discovering", msg.Action, msg.Actor.ID[:12])
+					name := msg.Actor.Attributes["name"]
+					log.Printf("docker: event: container added: %s", name)
 					info, err := m.containerToTargetInfo(ctx, msg.Actor.ID)
 					if err != nil {
-						log.Printf("docker: event: could not get target info for %s: %v", msg.Actor.ID[:12], err)
+						log.Printf("docker: event: could not get target info for %s: %v", name, err)
 						continue
 					}
-					if err := m.JoinNetworks(ctx, info.NetworkIDs); err != nil {
+					joined, err := m.JoinNetworks(ctx, info.NetworkIDs)
+					if err != nil {
 						log.Printf("docker: event: failed to join networks: %v", err)
+					}
+					for _, n := range joined {
+						log.Printf("docker: event: joined network: %s", n)
 					}
 					handler.RegisterTarget(info)
 
 				case "die":
-					log.Printf("docker: event die for container %s", msg.Actor.ID[:12])
+					name := msg.Actor.Attributes["name"]
+					log.Printf("docker: event: container removed: %s", name)
 					handler.RemoveTarget(msg.Actor.ID)
 				}
 			}
