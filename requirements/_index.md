@@ -8,3 +8,4 @@
 | REQ-004 | Structured Init and Change Logging         | Medium   | Completed | 2026-03-30 | [2026-03-30-structured-init-and-change-logging.md](2026-03-30-structured-init-and-change-logging.md) |
 | REQ-005 | Log All Container Starts with Rejection Reason | High | Completed | 2026-03-30 | [2026-03-30-log-container-start-rejection.md](2026-03-30-log-container-start-rejection.md) |
 | REQ-006 | Rename tpc → tcp Throughout                | High     | Completed | 2026-03-30 | [2026-03-30-rename-tpc-to-tcp.md](2026-03-30-rename-tpc-to-tcp.md) |
+| REQ-007 | Multi-Port Mappings (ports label)          | High     | Planned   | 2026-03-30 | [2026-03-30-multi-port-mappings.md](2026-03-30-multi-port-mappings.md) |
