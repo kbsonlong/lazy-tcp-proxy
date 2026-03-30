@@ -38,12 +38,15 @@ type Manager struct {
 	selfID  string
 }
 
-// NewManager creates a new DockerManager connected via DOCKER_HOST or the default socket.
+// NewManager creates a new DockerManager. The Docker socket path can be set via
+// DOCKER_SOCK (e.g. /var/run/docker.sock). Falls back to DOCKER_HOST, then the
+// default socket.
 func NewManager() (*Manager, error) {
-	cli, err := client.NewClientWithOpts(
-		client.FromEnv,
-		client.WithAPIVersionNegotiation(),
-	)
+	opts := []client.Opt{client.FromEnv, client.WithAPIVersionNegotiation()}
+	if sock := os.Getenv("DOCKER_SOCK"); sock != "" {
+		opts = append([]client.Opt{client.WithHost("unix://" + sock)}, opts...)
+	}
+	cli, err := client.NewClientWithOpts(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("creating docker client: %w", err)
 	}
