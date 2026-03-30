@@ -18,11 +18,17 @@ import (
 	"github.com/docker/docker/client"
 )
 
+// PortMapping holds a single listen→target port pair.
+type PortMapping struct {
+	ListenPort int
+	TargetPort int
+}
+
 // TargetInfo holds information about a proxy target container.
 type TargetInfo struct {
 	ContainerID   string
 	ContainerName string
-	Port          int
+	Ports         []PortMapping
 	NetworkIDs    []string
 }
 
@@ -158,13 +164,25 @@ func (m *Manager) containerToTargetInfo(ctx context.Context, containerID string)
 		return TargetInfo{}, fmt.Errorf("inspecting container: %w", err)
 	}
 
-	portStr, ok := inspect.Config.Labels["lazy-tcp-proxy.port"]
+	portsStr, ok := inspect.Config.Labels["lazy-tcp-proxy.ports"]
 	if !ok {
-		return TargetInfo{}, fmt.Errorf("missing label lazy-tcp-proxy.port")
+		return TargetInfo{}, fmt.Errorf("missing label lazy-tcp-proxy.ports")
 	}
-	port, err := strconv.Atoi(strings.TrimSpace(portStr))
-	if err != nil {
-		return TargetInfo{}, fmt.Errorf("invalid port label %q: %w", portStr, err)
+	var ports []PortMapping
+	for _, token := range strings.Split(portsStr, ",") {
+		parts := strings.SplitN(strings.TrimSpace(token), ":", 2)
+		if len(parts) != 2 {
+			return TargetInfo{}, fmt.Errorf("invalid port mapping %q: expected <listen>:<target>", token)
+		}
+		lp, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+		if err != nil {
+			return TargetInfo{}, fmt.Errorf("invalid listen port in %q: %w", token, err)
+		}
+		tp, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+		if err != nil {
+			return TargetInfo{}, fmt.Errorf("invalid target port in %q: %w", token, err)
+		}
+		ports = append(ports, PortMapping{ListenPort: lp, TargetPort: tp})
 	}
 
 	name := strings.TrimPrefix(inspect.Name, "/")
@@ -179,7 +197,7 @@ func (m *Manager) containerToTargetInfo(ctx context.Context, containerID string)
 	return TargetInfo{
 		ContainerID:   containerID,
 		ContainerName: name,
-		Port:          port,
+		Ports:         ports,
 		NetworkIDs:    networkIDs,
 	}, nil
 }
@@ -343,13 +361,25 @@ func (m *Manager) WatchEvents(ctx context.Context, handler TargetHandler) {
 						log.Printf("docker: event: container %s started but not proxied: missing label lazy-tcp-proxy.enabled=true", name)
 						continue
 					}
-					portVal, hasPort := attrs["lazy-tcp-proxy.port"]
-					if !hasPort {
-						log.Printf("docker: event: container %s started but not proxied: missing label lazy-tcp-proxy.port", name)
+					portsVal, hasPorts := attrs["lazy-tcp-proxy.ports"]
+					if !hasPorts {
+						log.Printf("docker: event: container %s started but not proxied: missing label lazy-tcp-proxy.ports", name)
 						continue
 					}
-					if _, err := strconv.Atoi(strings.TrimSpace(portVal)); err != nil {
-						log.Printf("docker: event: container %s started but not proxied: invalid port value %q", name, portVal)
+					valid := false
+					for _, token := range strings.Split(portsVal, ",") {
+						parts := strings.SplitN(strings.TrimSpace(token), ":", 2)
+						if len(parts) == 2 {
+							_, e1 := strconv.Atoi(strings.TrimSpace(parts[0]))
+							_, e2 := strconv.Atoi(strings.TrimSpace(parts[1]))
+							if e1 == nil && e2 == nil {
+								valid = true
+								break
+							}
+						}
+					}
+					if !valid {
+						log.Printf("docker: event: container %s started but not proxied: invalid ports value %q", name, portsVal)
 						continue
 					}
 					log.Printf("docker: event: container added: %s", name)
