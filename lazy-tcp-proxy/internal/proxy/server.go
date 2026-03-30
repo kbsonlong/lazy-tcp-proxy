@@ -16,7 +16,6 @@ import (
 const (
 	dialRetries  = 30
 	dialInterval = time.Second
-	idleTimeout  = 2 * time.Minute
 )
 
 // targetState holds runtime state for a single listen-port→container-port mapping.
@@ -32,17 +31,18 @@ type targetState struct {
 
 // ProxyServer manages TCP listeners and proxies connections to Docker containers.
 type ProxyServer struct {
-	docker  *docker.Manager
-	mu      sync.RWMutex
-	// keyed by port number
-	targets map[int]*targetState
+	docker      *docker.Manager
+	mu          sync.RWMutex
+	targets     map[int]*targetState // keyed by listen port
+	idleTimeout time.Duration
 }
 
 // NewServer creates a new ProxyServer backed by the given DockerManager.
-func NewServer(d *docker.Manager) *ProxyServer {
+func NewServer(d *docker.Manager, idleTimeout time.Duration) *ProxyServer {
 	return &ProxyServer{
-		docker:  d,
-		targets: make(map[int]*targetState),
+		docker:      d,
+		targets:     make(map[int]*targetState),
+		idleTimeout: idleTimeout,
 	}
 }
 
@@ -148,7 +148,7 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 			byContainer[ts.info.ContainerID] = e
 		}
 		e.states = append(e.states, ts)
-		if !ts.running || ts.activeConns.Load() > 0 || time.Since(ts.lastActive) < idleTimeout {
+		if !ts.running || ts.activeConns.Load() > 0 || time.Since(ts.lastActive) < s.idleTimeout {
 			e.allIdle = false
 		}
 	}
@@ -196,7 +196,7 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 	defer func() {
 		if ts.activeConns.Add(-1) == 0 {
 			log.Printf("proxy: last connection to %s closed; idle timer started (container will stop in ~%s if no new connections)",
-				ts.info.ContainerName, idleTimeout)
+				ts.info.ContainerName, s.idleTimeout)
 		}
 	}()
 

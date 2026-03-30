@@ -2,7 +2,7 @@
 
 **Date Added**: 2026-03-30
 **Priority**: Medium
-**Status**: In Progress
+**Status**: Completed
 
 ## Problem Statement
 
@@ -38,12 +38,12 @@ signature (or a separate setter). The constant in `server.go` is removed.
 
 ## Acceptance Criteria
 
-- [ ] `IDLE_TIMEOUT_SECS=60` causes containers to be stopped after 60 seconds of inactivity.
-- [ ] Omitting `IDLE_TIMEOUT_SECS` defaults to 120 seconds.
-- [ ] An invalid value (e.g. `IDLE_TIMEOUT_SECS=abc`) falls back to 120 s with a warning log.
-- [ ] The startup log reflects the configured timeout.
-- [ ] The "idle timer started" log in `handleConn` shows the correct configured timeout.
-- [ ] `go build ./...` passes.
+- [x] `IDLE_TIMEOUT_SECS=60` causes containers to be stopped after 60 seconds of inactivity.
+- [x] Omitting `IDLE_TIMEOUT_SECS` defaults to 120 seconds.
+- [x] An invalid value (e.g. `IDLE_TIMEOUT_SECS=abc`) falls back to 120 s with a warning log.
+- [x] The startup log reflects the configured timeout.
+- [x] The "idle timer started" log in `handleConn` shows the correct configured timeout.
+- [x] `go build ./...` passes.
 
 ## Dependencies
 
