@@ -2,7 +2,7 @@
 
 **Date Added**: 2026-03-30
 **Priority**: High
-**Status**: In Progress
+**Status**: Completed
 
 ## Problem Statement
 
@@ -63,10 +63,10 @@ The existing `defer conn.Close()` and `defer upstream.Close()` in `handleConn` r
 
 ## Acceptance Criteria
 
-- [ ] When the upstream container closes its connection, `handleConn` returns promptly (within milliseconds, not minutes).
-- [ ] The "last connection closed; idle timer started" log (REQ-010) fires immediately after the upstream closes.
-- [ ] The external client connection is terminated when the upstream closes.
-- [ ] `go build ./...` passes.
+- [x] When the upstream container closes its connection, `handleConn` returns promptly (within milliseconds, not minutes).
+- [x] The "last connection closed; idle timer started" log (REQ-010) fires immediately after the upstream closes.
+- [x] The external client connection is terminated when the upstream closes.
+- [x] `go build ./...` passes.
 
 ## Dependencies
 

@@ -2,7 +2,7 @@
 
 **Requirement**: [2026-03-30-fix-proxy-teardown.md](2026-03-30-fix-proxy-teardown.md)
 **Date**: 2026-03-30
-**Status**: Approved
+**Status**: Implemented
 
 ## Implementation Steps
 
