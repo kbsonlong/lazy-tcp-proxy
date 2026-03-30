@@ -121,6 +121,7 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 		containerID string
 		name        string
 		allIdle     bool
+		states      []*targetState
 	}
 	byContainer := map[string]*entry{}
 	for _, ts := range snapshot {
@@ -132,6 +133,7 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 			e = &entry{containerID: ts.info.ContainerID, name: ts.info.ContainerName, allIdle: true}
 			byContainer[ts.info.ContainerID] = e
 		}
+		e.states = append(e.states, ts)
 		if ts.activeConns.Load() > 0 || time.Since(ts.lastActive) < idleTimeout {
 			e.allIdle = false
 		}
@@ -140,6 +142,13 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 		if e.allIdle {
 			if err := s.docker.StopContainer(ctx, e.containerID); err != nil {
 				log.Printf("proxy: inactivity: error stopping %s: %v", e.name, err)
+			} else {
+				// Reset lastActive so the checker backs off for a full idleTimeout
+				// before attempting to stop this container again.
+				now := time.Now()
+				for _, ts := range e.states {
+					ts.lastActive = now
+				}
 			}
 		}
 	}
@@ -167,6 +176,11 @@ func (s *ProxyServer) acceptLoop(ts *targetState) {
 // handleConn manages a single inbound connection to a target container.
 func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 	defer conn.Close()
+
+	// Increment activeConns immediately so the inactivity checker does not stop
+	// the container while we are starting it or waiting for the upstream dial.
+	ts.activeConns.Add(1)
+	defer ts.activeConns.Add(-1)
 
 	ctx := context.Background()
 
@@ -211,11 +225,8 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 	}
 	defer upstream.Close()
 
-	ts.activeConns.Add(1)
-	defer func() {
-		ts.activeConns.Add(-1)
-		ts.lastActive = time.Now()
-	}()
+	// Update lastActive when the proxied connection closes (successful activity).
+	defer func() { ts.lastActive = time.Now() }()
 
 	log.Printf("proxy: proxying connection to %s", upstream.RemoteAddr())
 

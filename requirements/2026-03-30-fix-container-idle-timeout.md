@@ -2,7 +2,7 @@
 
 **Date Added**: 2026-03-30
 **Priority**: High
-**Status**: In Progress
+**Status**: Completed
 
 ## Problem Statement
 
@@ -35,10 +35,10 @@ In `checkInactivity` in `internal/proxy/server.go`:
 
 ## Acceptance Criteria
 
-- [ ] A container with no connections is stopped approximately 2 minutes after the last connection closes (or after initial registration if no connections are ever made).
-- [ ] Connecting to a proxy port for a stopped container successfully starts the container and proxies the connection, even if the connection arrives immediately after the idle timeout has fired.
-- [ ] The checker does not call `StopContainer` more than once per 2-minute window for the same container.
-- [ ] `go build ./...` passes.
+- [x] A container with no connections is stopped approximately 2 minutes after the last connection closes (or after initial registration if no connections are ever made).
+- [x] Connecting to a proxy port for a stopped container successfully starts the container and proxies the connection, even if the connection arrives immediately after the idle timeout has fired.
+- [x] The checker does not call `StopContainer` more than once per 2-minute window for the same container.
+- [x] `go build ./...` passes.
 
 ## Dependencies
 
