@@ -9,4 +9,4 @@
 | REQ-005 | Log All Container Starts with Rejection Reason | High | Completed | 2026-03-30 | [2026-03-30-log-container-start-rejection.md](2026-03-30-log-container-start-rejection.md) |
 | REQ-006 | Rename tpc → tcp Throughout                | High     | Completed | 2026-03-30 | [2026-03-30-rename-tpc-to-tcp.md](2026-03-30-rename-tpc-to-tcp.md) |
 | REQ-007 | Multi-Port Mappings (ports label)          | High     | Completed | 2026-03-30 | [2026-03-30-multi-port-mappings.md](2026-03-30-multi-port-mappings.md) |
-| REQ-008 | Keep Stopped Containers Registered         | High     | In Progress | 2026-03-30 | [2026-03-30-keep-stopped-containers-registered.md](2026-03-30-keep-stopped-containers-registered.md) |
+| REQ-008 | Keep Stopped Containers Registered         | High     | Completed | 2026-03-30 | [2026-03-30-keep-stopped-containers-registered.md](2026-03-30-keep-stopped-containers-registered.md) |

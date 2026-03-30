@@ -327,6 +327,7 @@ func (m *Manager) WatchEvents(ctx context.Context, handler TargetHandler) {
 		f.Add("type", string(events.ContainerEventType))
 		f.Add("event", "start")
 		f.Add("event", "die")
+		f.Add("event", "destroy")
 		f.Add("event", "create")
 
 		msgCh, errCh := m.cli.Events(ctx, types.EventsOptions{Filters: f})
@@ -398,6 +399,10 @@ func (m *Manager) WatchEvents(ctx context.Context, handler TargetHandler) {
 					handler.RegisterTarget(info)
 
 				case "die":
+					name := msg.Actor.Attributes["name"]
+					log.Printf("docker: event: container stopped: %s (still registered)", name)
+
+				case "destroy":
 					name := msg.Actor.Attributes["name"]
 					log.Printf("docker: event: container removed: %s", name)
 					handler.RemoveTarget(msg.Actor.ID)
