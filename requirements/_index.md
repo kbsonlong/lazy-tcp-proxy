@@ -11,4 +11,4 @@
 | REQ-007 | Multi-Port Mappings (ports label)          | High     | Completed | 2026-03-30 | [2026-03-30-multi-port-mappings.md](2026-03-30-multi-port-mappings.md) |
 | REQ-008 | Keep Stopped Containers Registered         | High     | Completed | 2026-03-30 | [2026-03-30-keep-stopped-containers-registered.md](2026-03-30-keep-stopped-containers-registered.md) |
 | REQ-009 | Fix Container Idle Timeout                 | High     | Completed | 2026-03-30 | [2026-03-30-fix-container-idle-timeout.md](2026-03-30-fix-container-idle-timeout.md) |
-| REQ-010 | Idle-Timeout Observability & Poll Interval | Medium   | Planned   | 2026-03-30 | [2026-03-30-idle-timeout-observability.md](2026-03-30-idle-timeout-observability.md) |
+| REQ-010 | Idle-Timeout Observability & Poll Interval | Medium   | In Progress | 2026-03-30 | [2026-03-30-idle-timeout-observability.md](2026-03-30-idle-timeout-observability.md) |
