@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/nickgrealy/lazy-tpc-proxy/internal/docker"
+	"github.com/nickgrealy/lazy-tcp-proxy/internal/docker"
 )
 
 const (

@@ -108,7 +108,7 @@ func (m *Manager) SelfContainerID() string {
 // joins their networks, and calls handler.RegisterTarget for each.
 func (m *Manager) Discover(ctx context.Context, handler TargetHandler) error {
 	f := filters.NewArgs()
-	f.Add("label", "lazy-tpc-proxy.enabled=true")
+	f.Add("label", "lazy-tcp-proxy.enabled=true")
 
 	containers, err := m.cli.ContainerList(ctx, container.ListOptions{
 		All:     true,
@@ -158,9 +158,9 @@ func (m *Manager) containerToTargetInfo(ctx context.Context, containerID string)
 		return TargetInfo{}, fmt.Errorf("inspecting container: %w", err)
 	}
 
-	portStr, ok := inspect.Config.Labels["lazy-tpc-proxy.port"]
+	portStr, ok := inspect.Config.Labels["lazy-tcp-proxy.port"]
 	if !ok {
-		return TargetInfo{}, fmt.Errorf("missing label lazy-tpc-proxy.port")
+		return TargetInfo{}, fmt.Errorf("missing label lazy-tcp-proxy.port")
 	}
 	port, err := strconv.Atoi(strings.TrimSpace(portStr))
 	if err != nil {
@@ -307,7 +307,6 @@ func (m *Manager) WatchEvents(ctx context.Context, handler TargetHandler) {
 
 		f := filters.NewArgs()
 		f.Add("type", string(events.ContainerEventType))
-		f.Add("label", "lazy-tpc-proxy.enabled=true")
 		f.Add("event", "start")
 		f.Add("event", "die")
 		f.Add("event", "create")
@@ -339,6 +338,20 @@ func (m *Manager) WatchEvents(ctx context.Context, handler TargetHandler) {
 				switch msg.Action {
 				case "create", "start":
 					name := msg.Actor.Attributes["name"]
+					attrs := msg.Actor.Attributes
+					if attrs["lazy-tcp-proxy.enabled"] != "true" {
+						log.Printf("docker: event: container %s started but not proxied: missing label lazy-tcp-proxy.enabled=true", name)
+						continue
+					}
+					portVal, hasPort := attrs["lazy-tcp-proxy.port"]
+					if !hasPort {
+						log.Printf("docker: event: container %s started but not proxied: missing label lazy-tcp-proxy.port", name)
+						continue
+					}
+					if _, err := strconv.Atoi(strings.TrimSpace(portVal)); err != nil {
+						log.Printf("docker: event: container %s started but not proxied: invalid port value %q", name, portVal)
+						continue
+					}
 					log.Printf("docker: event: container added: %s", name)
 					info, err := m.containerToTargetInfo(ctx, msg.Actor.ID)
 					if err != nil {
