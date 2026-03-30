@@ -14,10 +14,9 @@ import (
 )
 
 const (
-	dialRetries   = 30
-	dialInterval  = time.Second
-	idleTimeout   = 2 * time.Minute
-	inactivityTick = 30 * time.Second
+	dialRetries  = 30
+	dialInterval = time.Second
+	idleTimeout  = 2 * time.Minute
 )
 
 // targetState holds runtime state for a single listen-port→container-port mapping.
@@ -94,8 +93,8 @@ func (s *ProxyServer) RemoveTarget(containerID string) {
 }
 
 // RunInactivityChecker periodically stops idle containers.
-func (s *ProxyServer) RunInactivityChecker(ctx context.Context) {
-	ticker := time.NewTicker(inactivityTick)
+func (s *ProxyServer) RunInactivityChecker(ctx context.Context, tick time.Duration) {
+	ticker := time.NewTicker(tick)
 	defer ticker.Stop()
 
 	for {
@@ -180,7 +179,12 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 	// Increment activeConns immediately so the inactivity checker does not stop
 	// the container while we are starting it or waiting for the upstream dial.
 	ts.activeConns.Add(1)
-	defer ts.activeConns.Add(-1)
+	defer func() {
+		if ts.activeConns.Add(-1) == 0 {
+			log.Printf("proxy: last connection to %s closed; idle timer started (container will stop in ~%s if no new connections)",
+				ts.info.ContainerName, idleTimeout)
+		}
+	}()
 
 	ctx := context.Background()
 

@@ -2,7 +2,7 @@
 
 **Date Added**: 2026-03-30
 **Priority**: Medium
-**Status**: In Progress
+**Status**: Completed
 
 ## Problem Statement
 
@@ -29,12 +29,12 @@ Two related gaps in the current proxy:
 
 ## Acceptance Criteria
 
-- [ ] Log line appears when the last connection to a container closes; it includes the container name and the idle-timeout duration.
-- [ ] No log line appears when a connection closes but others remain active for the same container.
-- [ ] `POLL_INTERVAL_SECS=10` causes the checker to tick every 10 s (verifiable via logs).
-- [ ] Omitting `POLL_INTERVAL_SECS` causes the checker to tick every 15 s.
-- [ ] An invalid value (e.g. `POLL_INTERVAL_SECS=abc`) falls back to 15 s and logs a warning.
-- [ ] `go build ./...` passes.
+- [x] Log line appears when the last connection to a container closes; it includes the container name and the idle-timeout duration.
+- [x] No log line appears when a connection closes but others remain active for the same container.
+- [x] `POLL_INTERVAL_SECS=10` causes the checker to tick every 10 s (verifiable via logs).
+- [x] Omitting `POLL_INTERVAL_SECS` causes the checker to tick every 15 s.
+- [x] An invalid value (e.g. `POLL_INTERVAL_SECS=abc`) falls back to 15 s and logs a warning.
+- [x] `go build ./...` passes.
 
 ## Dependencies
 

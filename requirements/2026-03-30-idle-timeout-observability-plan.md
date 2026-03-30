@@ -2,7 +2,7 @@
 
 **Requirement**: [2026-03-30-idle-timeout-observability.md](2026-03-30-idle-timeout-observability.md)
 **Date**: 2026-03-30
-**Status**: Approved
+**Status**: Implemented
 
 ## Implementation Steps
 

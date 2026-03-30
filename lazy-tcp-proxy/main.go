@@ -5,11 +5,28 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/nickgrealy/lazy-tcp-proxy/internal/docker"
 	"github.com/nickgrealy/lazy-tcp-proxy/internal/proxy"
 )
+
+const defaultPollInterval = 15 * time.Second
+
+func resolvePollInterval() time.Duration {
+	raw := os.Getenv("POLL_INTERVAL_SECS")
+	if raw == "" {
+		return defaultPollInterval
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		log.Printf("POLL_INTERVAL_SECS=%q is invalid; using default %s", raw, defaultPollInterval)
+		return defaultPollInterval
+	}
+	return time.Duration(n) * time.Second
+}
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
@@ -49,8 +66,10 @@ func main() {
 	}()
 
 	// Periodically stop idle containers
+	tick := resolvePollInterval()
+	log.Printf("inactivity check interval: %s (set POLL_INTERVAL_SECS to override)", tick)
 	go func() {
-		srv.RunInactivityChecker(ctx)
+		srv.RunInactivityChecker(ctx, tick)
 	}()
 
 	log.Println("lazy-tcp-proxy running; waiting for shutdown signal")
