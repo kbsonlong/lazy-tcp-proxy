@@ -12,3 +12,4 @@
 | REQ-008 | Keep Stopped Containers Registered         | High     | Completed | 2026-03-30 | [2026-03-30-keep-stopped-containers-registered.md](2026-03-30-keep-stopped-containers-registered.md) |
 | REQ-009 | Fix Container Idle Timeout                 | High     | Completed | 2026-03-30 | [2026-03-30-fix-container-idle-timeout.md](2026-03-30-fix-container-idle-timeout.md) |
 | REQ-010 | Idle-Timeout Observability & Poll Interval | Medium   | Completed | 2026-03-30 | [2026-03-30-idle-timeout-observability.md](2026-03-30-idle-timeout-observability.md) |
+| REQ-011 | Fix Bidirectional TCP Proxy Teardown       | High     | Completed | 2026-03-30 | [2026-03-30-fix-proxy-teardown.md](2026-03-30-fix-proxy-teardown.md) |

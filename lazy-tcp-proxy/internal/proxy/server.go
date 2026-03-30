@@ -234,29 +234,29 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 
 	log.Printf("proxy: proxying connection to %s", upstream.RemoteAddr())
 
-	// Bidirectional copy
+	// Bidirectional copy. When either direction closes, both connections are
+	// shut down immediately so the other goroutine is never left hanging.
+	var closeOnce sync.Once
+	closeAll := func() {
+		closeOnce.Do(func() {
+			conn.Close()
+			upstream.Close()
+		})
+	}
+
 	var wg sync.WaitGroup
 	wg.Add(2)
 
 	go func() {
 		defer wg.Done()
-		if _, err := io.Copy(upstream, conn); err != nil {
-			// Ignore closed connection errors
-		}
-		// Half-close
-		if tc, ok := upstream.(*net.TCPConn); ok {
-			tc.CloseWrite()
-		}
+		io.Copy(upstream, conn) //nolint:errcheck
+		closeAll()
 	}()
 
 	go func() {
 		defer wg.Done()
-		if _, err := io.Copy(conn, upstream); err != nil {
-			// Ignore closed connection errors
-		}
-		if tc, ok := conn.(*net.TCPConn); ok {
-			tc.CloseWrite()
-		}
+		io.Copy(conn, upstream) //nolint:errcheck
+		closeAll()
 	}()
 
 	wg.Wait()
