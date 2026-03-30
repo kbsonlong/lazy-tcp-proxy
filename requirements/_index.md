@@ -6,3 +6,4 @@
 | REQ-002 | DOCKER_SOCK Env Var & Dockerfile Volume    | Medium   | Completed | 2026-03-30 | [2026-03-30-docker-sock-env-var.md](2026-03-30-docker-sock-env-var.md)         |
 | REQ-003 | Requirements-First Development Workflow    | High     | Completed | 2026-03-30 | [2026-03-30-requirements-workflow.md](2026-03-30-requirements-workflow.md)     |
 | REQ-004 | Structured Init and Change Logging         | Medium   | Completed | 2026-03-30 | [2026-03-30-structured-init-and-change-logging.md](2026-03-30-structured-init-and-change-logging.md) |
+| REQ-005 | Log All Container Starts with Rejection Reason | High | Planned  | 2026-03-30 | [2026-03-30-log-container-start-rejection.md](2026-03-30-log-container-start-rejection.md) |
