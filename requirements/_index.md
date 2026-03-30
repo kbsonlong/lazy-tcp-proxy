@@ -14,3 +14,4 @@
 | REQ-010 | Idle-Timeout Observability & Poll Interval | Medium   | Completed | 2026-03-30 | [2026-03-30-idle-timeout-observability.md](2026-03-30-idle-timeout-observability.md) |
 | REQ-011 | Fix Bidirectional TCP Proxy Teardown       | High     | Completed | 2026-03-30 | [2026-03-30-fix-proxy-teardown.md](2026-03-30-fix-proxy-teardown.md) |
 | REQ-012 | Fix Redundant Container Stop Calls         | High     | Completed | 2026-03-30 | [2026-03-30-fix-redundant-stop.md](2026-03-30-fix-redundant-stop.md) |
+| REQ-013 | Configurable Idle Timeout (IDLE_TIMEOUT_SECS) | Medium | Planned  | 2026-03-30 | [2026-03-30-configurable-idle-timeout.md](2026-03-30-configurable-idle-timeout.md) |
