@@ -2,7 +2,7 @@
 
 **Date Added**: 2026-03-30
 **Priority**: High
-**Status**: In Progress
+**Status**: Completed
 
 ## Problem Statement
 
@@ -78,10 +78,10 @@ Replaces the current log-only handler for `"die"`.
 
 ## Acceptance Criteria
 
-- [ ] After the checker stops a container, no further `StopContainer` calls are made for that container until it starts again.
-- [ ] If the container is started on-demand (new connection) and then goes idle again, it is stopped once more after 2 minutes.
-- [ ] If the container is stopped externally (e.g. `docker stop`), the checker also stops issuing stop calls.
-- [ ] `go build ./...` passes.
+- [x] After the checker stops a container, no further `StopContainer` calls are made for that container until it starts again.
+- [x] If the container is started on-demand (new connection) and then goes idle again, it is stopped once more after 2 minutes.
+- [x] If the container is stopped externally (e.g. `docker stop`), the checker also stops issuing stop calls.
+- [x] `go build ./...` passes.
 
 ## Dependencies
 
