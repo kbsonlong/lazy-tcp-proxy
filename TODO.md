@@ -3,6 +3,7 @@
 
 - [x] handle Docker Containers
 - [ ] handle Docker Stacks
+- [ ] Expose a HTTP endpoint to list services (security concern?)
 
 ## Questions
 
