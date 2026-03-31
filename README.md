@@ -34,7 +34,7 @@ docker run -d \
 	-p "9000-9999:9000-9999" \
     --restart=always \
     --name lazy-tcp-proxy \
-	mountain-pass/lazy-tcp-proxy
+	mountainpass/lazy-tcp-proxy
 ```
 
 Or use the provided `docker-compose.yml`.
@@ -48,8 +48,8 @@ cd lazy-tcp-proxy
 VERSION=1.`date +%Y%m%d`.`git rev-parse --short=8 HEAD`
 docker buildx build \
   --platform linux/amd64,linux/arm64/v8 \
-  --tag mountain-pass/lazy-tcp-proxy:${VERSION} \
-  --tag mountain-pass/lazy-tcp-proxy:latest \
+  --tag mountainpass/lazy-tcp-proxy:${VERSION} \
+  --tag mountainpass/lazy-tcp-proxy:latest \
   --push \
   .
 ```
