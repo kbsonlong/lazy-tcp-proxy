@@ -2,7 +2,7 @@
 
 **Date Added**: 2026-03-31
 **Priority**: Medium
-**Status**: Planned
+**Status**: In Progress
 
 ## Problem Statement
 
@@ -14,7 +14,9 @@ There is currently no way to restrict which source IP addresses can connect to a
    - If present and non-empty, **only** connections whose source IP matches at least one entry are forwarded; all others are silently dropped (connection closed, brief log line).
 2. **`lazy-tcp-proxy.block-list`** label — comma-delimited list of IPs and/or CIDR ranges.
    - If present and non-empty, connections whose source IP matches at least one entry are silently dropped; all others proceed normally.
-3. Both labels are **optional**. If neither is set, behaviour is unchanged.
+3. Both labels are **optional**:
+   - If `allow-list` is absent, the allow-list check is treated as **passed** (all IPs allowed).
+   - If `block-list` is absent, the block-list check is treated as **passed** (no IPs blocked).
 4. Both labels may be set simultaneously. Evaluation order: **allow-list checked first** (if set), then **block-list** (if set). A connection must pass the allow-list check before the block-list is evaluated.
 5. Each entry may be:
    - A plain IPv4 address: `192.168.1.5`
@@ -34,15 +36,11 @@ labels:
   - "lazy-tcp-proxy.block-list=172.29.0.3,155.248.209.22"
 ```
 
-When a connection is dropped by the allow-list:
+When a connection is dropped (by either list), the normal "new connection" log line is emitted with `\033[31m(blocked)\033[0m` (red) appended:
 ```
-proxy: connection from 155.248.209.22:61000 to minecraft rejected: not in allow-list
+proxy: new connection to minecraft (port 25565) from 155.248.209.22:61000 (blocked)
 ```
-
-When a connection is dropped by the block-list:
-```
-proxy: connection from 155.248.209.22:61000 to minecraft rejected: address is blocked
-```
+No separate rejection log line is emitted. The connection is silently closed after logging.
 
 ## Technical Requirements
 
@@ -59,9 +57,10 @@ proxy: connection from 155.248.209.22:61000 to minecraft rejected: address is bl
 - [ ] Container with both labels: allow-list is evaluated first, then block-list on the remaining set.
 - [ ] Plain IP and CIDR entries both work in each list.
 - [ ] Invalid entries produce a warning log and are skipped; the container is still registered.
-- [ ] A blocked connection does NOT start the container (checked via `EnsureRunning` not being called).
-- [ ] The rejected connection log line names the container and the reason.
-- [ ] No regression on containers without either label.
+- [ ] A blocked connection does NOT start the container (`EnsureRunning` is not called).
+- [ ] A blocked connection logs the normal "new connection" line with red `(blocked)` appended.
+- [ ] No separate rejection log line is emitted for blocked connections.
+- [ ] No regression on containers without either label (both absent = all connections pass).
 
 ## Dependencies
 
