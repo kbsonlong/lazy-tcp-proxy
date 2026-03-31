@@ -57,13 +57,13 @@ func (s *ProxyServer) RegisterTarget(info docker.TargetInfo) {
 			existing.targetPort = m.TargetPort
 			existing.running = true
 			existing.removed = false
-			log.Printf("proxy: updated target %s on port %d->%d", info.ContainerName, m.ListenPort, m.TargetPort)
+			log.Printf("proxy: updated target \033[33m%s\033[0m on port %d->%d", info.ContainerName, m.ListenPort, m.TargetPort)
 			continue
 		}
 
 		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", m.ListenPort))
 		if err != nil {
-			log.Printf("proxy: failed to listen on port %d for %s: %v", m.ListenPort, info.ContainerName, err)
+			log.Printf("proxy: failed to listen on port %d for \033[33m%s\033[0m: %v", m.ListenPort, info.ContainerName, err)
 			continue
 		}
 
@@ -75,7 +75,7 @@ func (s *ProxyServer) RegisterTarget(info docker.TargetInfo) {
 			running:    true,
 		}
 		s.targets[m.ListenPort] = ts
-		log.Printf("proxy: registered target %s, listening on port %d->%d", info.ContainerName, m.ListenPort, m.TargetPort)
+		log.Printf("proxy: registered target \033[33m%s\033[0m, listening on port %d->%d", info.ContainerName, m.ListenPort, m.TargetPort)
 		go s.acceptLoop(ts)
 	}
 }
@@ -87,7 +87,7 @@ func (s *ProxyServer) RemoveTarget(containerID string) {
 
 	for port, ts := range s.targets {
 		if ts.info.ContainerID == containerID {
-			log.Printf("proxy: removing target %s on port %d", ts.info.ContainerName, port)
+			log.Printf("proxy: removing target \033[33m%s\033[0m on port %d", ts.info.ContainerName, port)
 			ts.removed = true
 			ts.listener.Close()
 			delete(s.targets, port)
@@ -155,7 +155,7 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 	for _, e := range byContainer {
 		if e.allIdle {
 			if err := s.docker.StopContainer(ctx, e.containerID); err != nil {
-				log.Printf("proxy: inactivity: error stopping %s: %v", e.name, err)
+				log.Printf("proxy: inactivity: error stopping \033[33m%s\033[0m: %v", e.name, err)
 			} else {
 				// Mark as stopped immediately; the "die" event will also call
 				// ContainerStopped, but this covers the window before it arrives.
@@ -195,19 +195,19 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 	ts.activeConns.Add(1)
 	defer func() {
 		if ts.activeConns.Add(-1) == 0 {
-			log.Printf("proxy: last connection to %s closed; idle timer started (container will stop in ~%s if no new connections)",
+			log.Printf("proxy: last connection to \033[33m%s\033[0m closed; idle timer started (container will stop in ~%s if no new connections)",
 				ts.info.ContainerName, s.idleTimeout)
 		}
 	}()
 
 	ctx := context.Background()
 
-	log.Printf("proxy: new connection to %s (port %d) from %s",
+	log.Printf("proxy: new connection to \033[33m%s\033[0m (port %d) from %s",
 		ts.info.ContainerName, ts.targetPort, conn.RemoteAddr())
 
 	// Ensure the container is running
 	if err := s.docker.EnsureRunning(ctx, ts.info.ContainerID); err != nil {
-		log.Printf("proxy: could not start container %s: %v", ts.info.ContainerName, err)
+		log.Printf("proxy: could not start container \033[33m%s\033[0m: %v", ts.info.ContainerName, err)
 		return
 	}
 
@@ -223,7 +223,7 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 	for attempt := 1; attempt <= dialRetries; attempt++ {
 		ip, err := s.docker.GetContainerIP(ctx, ts.info.ContainerID, preferNet)
 		if err != nil {
-			log.Printf("proxy: attempt %d: could not get IP for %s: %v", attempt, ts.info.ContainerName, err)
+			log.Printf("proxy: attempt %d: could not get IP for \033[33m%s\033[0m: %v", attempt, ts.info.ContainerName, err)
 			time.Sleep(dialInterval)
 			continue
 		}
@@ -238,7 +238,7 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 	}
 
 	if upstream == nil {
-		log.Printf("proxy: exhausted retries connecting to %s: %v", ts.info.ContainerName, lastErr)
+		log.Printf("proxy: exhausted retries connecting to \033[33m%s\033[0m: %v", ts.info.ContainerName, lastErr)
 		return
 	}
 	defer upstream.Close()
@@ -274,5 +274,5 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 	}()
 
 	wg.Wait()
-	log.Printf("proxy: connection to %s closed", ts.info.ContainerName)
+	log.Printf("proxy: connection to \033[33m%s\033[0m closed", ts.info.ContainerName)
 }
