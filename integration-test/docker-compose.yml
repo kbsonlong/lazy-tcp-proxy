@@ -21,7 +21,7 @@ services:
   openssh-server:
     image: lscr.io/linuxserver/openssh-server:latest
     container_name: test-openssh-server
-    hostname: openssh-server #optional
+    hostname: openssh-server
     environment:
       - PUID=1000
       - PGID=1000
