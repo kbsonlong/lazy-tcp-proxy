@@ -152,7 +152,7 @@ func (m *Manager) Discover(ctx context.Context, handler TargetHandler) error {
 	if len(allNetworks) == 0 {
 		log.Printf("docker: init: no networks joined")
 	} else {
-		log.Printf("docker: init: joined networks: %s", strings.Join(allNetworks, ", "))
+		log.Printf("docker: init: joined networks: \033[32m%s\033[0m", strings.Join(allNetworks, ", "))
 	}
 
 	return nil
@@ -215,7 +215,7 @@ func (m *Manager) JoinNetworks(ctx context.Context, networkIDs []string) ([]stri
 		// Inspect the network to check current membership
 		netInfo, err := m.cli.NetworkInspect(ctx, netID, types.NetworkInspectOptions{})
 		if err != nil {
-			log.Printf("docker: could not inspect network %s: %v", netID, err)
+			log.Printf("docker: could not inspect network \033[32m%s\033[0m: %v", netID, err)
 			continue
 		}
 
@@ -232,11 +232,11 @@ func (m *Manager) JoinNetworks(ctx context.Context, networkIDs []string) ([]stri
 			continue
 		}
 
-		log.Printf("docker: joining network %s (%s)", netInfo.Name, netID[:12])
+		log.Printf("docker: joining network \033[32m%s\033[0m (%s)", netInfo.Name, netID[:12])
 		if err := m.cli.NetworkConnect(ctx, netID, m.selfID, nil); err != nil {
 			// Ignore "already exists" errors
 			if !strings.Contains(err.Error(), "already exists") {
-				log.Printf("docker: failed to join network %s: %v", netInfo.Name, err)
+				log.Printf("docker: failed to join network \033[32m%s\033[0m: %v", netInfo.Name, err)
 			}
 		} else {
 			joined = append(joined, netInfo.Name)
@@ -396,7 +396,7 @@ func (m *Manager) WatchEvents(ctx context.Context, handler TargetHandler) {
 						log.Printf("docker: event: failed to join networks: %v", err)
 					}
 					for _, n := range joined {
-						log.Printf("docker: event: joined network: %s", n)
+						log.Printf("docker: event: joined network: \033[32m%s\033[0m", n)
 					}
 					handler.RegisterTarget(info)
 

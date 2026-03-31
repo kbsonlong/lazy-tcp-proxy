@@ -17,3 +17,4 @@
 | REQ-013 | Configurable Idle Timeout (IDLE_TIMEOUT_SECS) | Medium | Completed | 2026-03-30 | [2026-03-30-configurable-idle-timeout.md](2026-03-30-configurable-idle-timeout.md) |
 | REQ-014 | Yellow Container Names in Log Output          | Low    | Completed | 2026-03-31 | [2026-03-31-yellow-container-names.md](2026-03-31-yellow-container-names.md) |
 | REQ-015 | Container Name in Start/Stop Log Messages     | Low    | Completed | 2026-03-31 | [2026-03-31-container-name-in-start-stop-logs.md](2026-03-31-container-name-in-start-stop-logs.md) |
+| REQ-016 | Green Network Names in Log Output             | Low    | Completed | 2026-03-31 | [2026-03-31-green-network-names.md](2026-03-31-green-network-names.md) |
