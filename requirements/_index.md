@@ -15,3 +15,4 @@
 | REQ-011 | Fix Bidirectional TCP Proxy Teardown       | High     | Completed | 2026-03-30 | [2026-03-30-fix-proxy-teardown.md](2026-03-30-fix-proxy-teardown.md) |
 | REQ-012 | Fix Redundant Container Stop Calls         | High     | Completed | 2026-03-30 | [2026-03-30-fix-redundant-stop.md](2026-03-30-fix-redundant-stop.md) |
 | REQ-013 | Configurable Idle Timeout (IDLE_TIMEOUT_SECS) | Medium | Completed | 2026-03-30 | [2026-03-30-configurable-idle-timeout.md](2026-03-30-configurable-idle-timeout.md) |
+| REQ-014 | Yellow Container Names in Log Output          | Low    | Completed | 2026-03-31 | [2026-03-31-yellow-container-names.md](2026-03-31-yellow-container-names.md) |
