@@ -7,7 +7,7 @@
 
 > "This is something that should really be built into Docker!" - Tom H.
 
-lazy-tcp-proxy allows you to run many Dockerized services on a single host, but only start containers when a connection arrives. It stops containers after a configurable idle timeout, saving resources while providing seamless access.
+`lazy-tcp-proxy` allows you to run many Dockerized services on a single host, but only start containers when a connection arrives. It stops containers after a configurable idle timeout, saving resources while providing seamless access.
 
 ---
 
@@ -27,15 +27,30 @@ lazy-tcp-proxy allows you to run many Dockerized services on a single host, but 
 ## Quick Start
 
 ```sh
-docker run \
+docker run -d \
 	-v /var/run/docker.sock:/var/run/docker.sock \
-	-e IDLE_TIMEOUT_SECS=120 \
-	-e POLL_INTERVAL_SECS=15 \
-	--network host \
-	ghcr.io/nickgrealy/lazy-tcp-proxy:latest
+	-p "9000-9999:9000-9999" \
+    --restart=always \
+    --name lazy-tcp-proxy \
+	nickgrealy/lazy-tcp-proxy
 ```
 
 Or use the provided `docker-compose.yml`.
+
+---
+
+## Building and Publishing
+
+```sh
+cd lazy-tcp-proxy
+VERSION=1.`date +%Y%m%d`.`git rev-parse --short=8 HEAD`
+docker buildx build \
+  --platform linux/amd64,linux/arm64/v8 \
+  --tag nickgrealy/lazy-tcp-proxy:${VERSION} \
+  --tag nickgrealy/lazy-tcp-proxy:latest \
+  --push \
+  .
+```
 
 ---
 
@@ -56,13 +71,27 @@ labels:
 
 ---
 
+
 ## Environment Variables
 
-- `IDLE_TIMEOUT_SECS` — How long (in seconds) a container must be idle before being stopped. Default: 120
-- `POLL_INTERVAL_SECS` — How often (in seconds) to check for idle containers. Default: 15
-- `DOCKER_SOCK` — Path to Docker socket. Default: `/var/run/docker.sock`
+| Variable            | Description                                                        | Default                   |
+|---------------------|--------------------------------------------------------------------|---------------------------|
+| `IDLE_TIMEOUT_SECS` | How long (in seconds) a container must be idle before being stopped| 120                       |
+| `POLL_INTERVAL_SECS`| How often (in seconds) to check for idle containers                | 15                        |
+| `DOCKER_SOCK`       | Path to Docker socket                                              | `/var/run/docker.sock`    |
 
 All are optional; defaults are safe for most setups.
+
+---
+
+## Required resources
+
+The container is designed to run with an extremely low footprint.
+
+```shell
+CONTAINER ID   NAME               CPU %     MEM USAGE / LIMIT     MEM %     NET I/O           BLOCK I/O         PIDS
+cbc5f775a793   lazy-tcp-proxy     0.00%     4.238MiB / 19.52GiB   0.02%     1.51MB / 1.4MB    0B / 0B           13
+```
 
 ---
 
