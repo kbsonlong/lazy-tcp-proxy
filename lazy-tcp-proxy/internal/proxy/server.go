@@ -154,7 +154,7 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 	}
 	for _, e := range byContainer {
 		if e.allIdle {
-			if err := s.docker.StopContainer(ctx, e.containerID); err != nil {
+			if err := s.docker.StopContainer(ctx, e.containerID, e.name); err != nil {
 				log.Printf("proxy: inactivity: error stopping \033[33m%s\033[0m: %v", e.name, err)
 			} else {
 				// Mark as stopped immediately; the "die" event will also call

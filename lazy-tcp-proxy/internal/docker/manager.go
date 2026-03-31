@@ -257,23 +257,24 @@ func (m *Manager) EnsureRunning(ctx context.Context, containerID string) error {
 		return nil
 	}
 
-	log.Printf("docker: starting container %s", containerID[:12])
+	name := strings.TrimPrefix(inspect.Name, "/")
+	log.Printf("docker: starting container \033[33m%s\033[0m", name)
 	if err := m.cli.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
 		return fmt.Errorf("starting container: %w", err)
 	}
 
-	log.Printf("docker: container %s started", containerID[:12])
+	log.Printf("docker: container \033[33m%s\033[0m started", name)
 	return nil
 }
 
 // StopContainer stops the given container with a 10-second timeout.
-func (m *Manager) StopContainer(ctx context.Context, containerID string) error {
+func (m *Manager) StopContainer(ctx context.Context, containerID string, containerName string) error {
 	timeout := 10
-	log.Printf("docker: stopping container %s (idle timeout)", containerID[:12])
+	log.Printf("docker: stopping container \033[33m%s\033[0m (idle timeout)", containerName)
 	if err := m.cli.ContainerStop(ctx, containerID, container.StopOptions{Timeout: &timeout}); err != nil {
 		return fmt.Errorf("stopping container: %w", err)
 	}
-	log.Printf("docker: container %s stopped", containerID[:12])
+	log.Printf("docker: container \033[33m%s\033[0m stopped", containerName)
 	return nil
 }
 
