@@ -20,7 +20,8 @@
 - **Dynamic discovery:** Watches Docker events for new/removed containers and updates proxy targets live.
 - **Network auto-join:** Proxy joins Docker networks as needed to reach containers by internal IP.
 - **Graceful shutdown:** Leaves all joined networks on SIGINT/SIGTERM.
-- **Structured, colorized logs:** Container names in yellow, network names in green for easy scanning.
+- **Per-service IP filtering:** Optional allow-list and block-list per container via labels; supports plain IPs and CIDRs.
+- **Structured, colorized logs:** Container names in yellow, network names in green, source addresses in cyan for easy scanning.
 
 ---
 
@@ -55,15 +56,23 @@ Then add labels to new or existing containers (see below).
 
 Add these labels to any container you want proxied:
 
-- `lazy-tcp-proxy.enabled=true` (required)
-- `lazy-tcp-proxy.ports=9000:80,9001:8080` (comma-separated `<listen>:<target>` pairs)
+| Label | Required | Description |
+|-------|----------|-------------|
+| `lazy-tcp-proxy.enabled` | Yes | Must be `true` to opt the container in |
+| `lazy-tcp-proxy.ports` | Yes | Comma-separated `<listen>:<target>` port pairs |
+| `lazy-tcp-proxy.allow-list` | No | Comma-separated IPs/CIDRs. If set, only matching source addresses are forwarded; all others are silently dropped |
+| `lazy-tcp-proxy.block-list` | No | Comma-separated IPs/CIDRs. If set, matching source addresses are silently dropped; all others are forwarded |
+
+Both `allow-list` and `block-list` accept plain IP addresses (e.g. `127.0.0.1`, `::1`) and CIDR ranges (e.g. `192.168.0.0/16`, `fd00::/8`). If both labels are set, the allow-list is evaluated first. Blocked connections are logged with a red `(blocked)` suffix and do **not** wake the container.
 
 Example:
 
 ```yaml
 labels:
-	- "lazy-tcp-proxy.enabled=true"
-	- "lazy-tcp-proxy.ports=9000:80,9001:8080"
+  - "lazy-tcp-proxy.enabled=true"
+  - "lazy-tcp-proxy.ports=9000:80,9001:8080"
+  - "lazy-tcp-proxy.allow-list=192.168.0.0/16,127.0.0.1"
+  - "lazy-tcp-proxy.block-list=172.29.0.3,155.248.209.22"
 ```
 
 ---
