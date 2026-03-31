@@ -136,7 +136,7 @@ func (m *Manager) Discover(ctx context.Context, handler TargetHandler) error {
 
 		joined, err := m.JoinNetworks(ctx, info.NetworkIDs)
 		if err != nil {
-			log.Printf("docker: discover: failed to join networks for %s: %v", info.ContainerName, err)
+			log.Printf("docker: discover: failed to join networks for \033[33m%s\033[0m: %v", info.ContainerName, err)
 		}
 		allNetworks = append(allNetworks, joined...)
 
@@ -147,7 +147,7 @@ func (m *Manager) Discover(ctx context.Context, handler TargetHandler) error {
 	if len(foundNames) == 0 {
 		log.Printf("docker: init: no proxy containers found")
 	} else {
-		log.Printf("docker: init: found containers: %s", strings.Join(foundNames, ", "))
+		log.Printf("docker: init: found containers: \033[33m%s\033[0m", strings.Join(foundNames, ", "))
 	}
 	if len(allNetworks) == 0 {
 		log.Printf("docker: init: no networks joined")
@@ -384,7 +384,7 @@ func (m *Manager) WatchEvents(ctx context.Context, handler TargetHandler) {
 						log.Printf("docker: event: container %s started but not proxied: invalid ports value %q", name, portsVal)
 						continue
 					}
-					log.Printf("docker: event: container added: %s", name)
+					log.Printf("docker: event: container added: \033[33m%s\033[0m", name)
 					info, err := m.containerToTargetInfo(ctx, msg.Actor.ID)
 					if err != nil {
 						log.Printf("docker: event: could not get target info for %s: %v", name, err)
@@ -401,12 +401,12 @@ func (m *Manager) WatchEvents(ctx context.Context, handler TargetHandler) {
 
 				case "die":
 					name := msg.Actor.Attributes["name"]
-					log.Printf("docker: event: container stopped: %s (still registered)", name)
+					log.Printf("docker: event: container stopped: \033[33m%s\033[0m (still registered)", name)
 					handler.ContainerStopped(msg.Actor.ID)
 
 				case "destroy":
 					name := msg.Actor.Attributes["name"]
-					log.Printf("docker: event: container removed: %s", name)
+					log.Printf("docker: event: container removed: \033[33m%s\033[0m", name)
 					handler.RemoveTarget(msg.Actor.ID)
 				}
 			}
