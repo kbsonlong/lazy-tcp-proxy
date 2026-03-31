@@ -1,3 +1,10 @@
+# docker buildx build \
+#   --platform linux/amd64,linux/arm64 \
+#   --tag nickgrealy/lazy-tcp-proxy:${VERSION} \
+#   --tag nickgrealy/lazy-tcp-proxy:latest \
+#   --push \
+#   .
+
 FROM golang:1.22-alpine AS builder
 WORKDIR /app
 COPY go.mod go.sum ./

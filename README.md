@@ -3,7 +3,9 @@
 
 **On-demand TCP proxy for Docker containers.**
 
-> "Scale to zero!"
+> "Scale to zero!" - Nick G.
+
+> "This is something that should really be built into Docker!" - Tom H.
 
 lazy-tcp-proxy allows you to run many Dockerized services on a single host, but only start containers when a connection arrives. It stops containers after a configurable idle timeout, saving resources while providing seamless access.
 
