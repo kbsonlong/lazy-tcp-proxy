@@ -60,6 +60,30 @@ labels:
 
 ---
 
+
+## Architecture
+
+```mermaid
+flowchart TD
+  A[Incoming TCP Connection<br/>on Host Port] --> B[lazy-tcp-proxy Container]
+  B -->|Check if Target Container Running| C{Target Container Running?}
+  C -- No --> D[Start Target Container]
+  C -- Yes --> E[Proxy Traffic]
+  D --> E
+  E --> F[Target Container]
+  F -- Idle Timeout --> G[Stop Target Container]
+  G -.->|Container Stopped| B
+```
+
+**How it works:**
+- The proxy listens on host ports and intercepts incoming TCP connections.
+- When a connection arrives, it checks if the target container is running (based on label configuration).
+- If not running, it starts the container on demand.
+- Proxies the connection to the container's internal port.
+- If the container is idle for the configured timeout, it is stopped to save resources.
+
+---
+
 ## Building and Publishing
 
 ```sh
