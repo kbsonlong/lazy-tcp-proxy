@@ -65,13 +65,13 @@ labels:
 
 ```mermaid
 flowchart TD
-  A[Incoming TCP Connection<br/>on Host Port] --> B[lazy-tcp-proxy Container]
-  B -->|Check if Target Container Running| C{Target Container Running?}
-  C -- No --> D[Start Target Container]
-  C -- Yes --> E[Proxy Traffic]
+  A([Incoming TCP Connection<br/>on Host Port]) -->|External Port| B[`lazy-tcp-proxy` Docker Container]
+  B -->|Check target Container state| C{Target Container<br/> Running?}
+  C -- No --> D([Start Target Container])
+  C -- Yes --> E([Proxy Traffic])
   D --> E
-  E --> F[Target Container]
-  F -- Idle Timeout --> G[Stop Target Container]
+  E -->|Internal Port/Network| F@{ shape: docs, label: "Target Docker Container/s"}
+  F -- Idle Timeout --> G([Stop Target Docker Container])
   G -.->|Container Stopped| B
 ```
 
