@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -31,6 +32,39 @@ type TargetInfo struct {
 	ContainerName string
 	Ports         []PortMapping
 	NetworkIDs    []string
+	AllowList     []net.IPNet // empty = no restriction (all IPs allowed)
+	BlockList     []net.IPNet // empty = no restriction (no IPs blocked)
+}
+
+// parseIPList parses a comma-delimited string of IPs and/or CIDRs into a
+// slice of net.IPNet. Plain IPs are stored as /32 (IPv4) or /128 (IPv6) nets.
+// Invalid entries are skipped with a warning log.
+func parseIPList(label, s string) []net.IPNet {
+	var nets []net.IPNet
+	for _, raw := range strings.Split(s, ",") {
+		entry := strings.TrimSpace(raw)
+		if entry == "" {
+			continue
+		}
+		// Try CIDR first
+		_, ipNet, err := net.ParseCIDR(entry)
+		if err == nil {
+			nets = append(nets, *ipNet)
+			continue
+		}
+		// Try plain IP
+		ip := net.ParseIP(entry)
+		if ip == nil {
+			log.Printf("docker: label %s: ignoring invalid entry %q", label, entry)
+			continue
+		}
+		bits := 32
+		if ip.To4() == nil {
+			bits = 128
+		}
+		nets = append(nets, net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)})
+	}
+	return nets
 }
 
 // TargetHandler is implemented by the proxy server to receive container updates.
@@ -198,11 +232,21 @@ func (m *Manager) containerToTargetInfo(ctx context.Context, containerID string)
 		}
 	}
 
+	var allowList, blockList []net.IPNet
+	if v, ok := inspect.Config.Labels["lazy-tcp-proxy.allow-list"]; ok && v != "" {
+		allowList = parseIPList("lazy-tcp-proxy.allow-list", v)
+	}
+	if v, ok := inspect.Config.Labels["lazy-tcp-proxy.block-list"]; ok && v != "" {
+		blockList = parseIPList("lazy-tcp-proxy.block-list", v)
+	}
+
 	return TargetInfo{
 		ContainerID:   containerID,
 		ContainerName: name,
 		Ports:         ports,
 		NetworkIDs:    networkIDs,
+		AllowList:     allowList,
+		BlockList:     blockList,
 	}, nil
 }
 

@@ -2,7 +2,7 @@
 
 **Requirement**: [2026-03-31-allow-block-lists.md](2026-03-31-allow-block-lists.md)
 **Date**: 2026-03-31
-**Status**: Draft
+**Status**: Implemented
 
 ## Implementation Steps
 

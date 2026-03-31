@@ -176,6 +176,38 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 	}
 }
 
+// ipBlocked returns true if the remote address should be denied based on the
+// target's allow-list and block-list. Evaluation order: allow-list first (if
+// set), then block-list. An empty list means "no restriction".
+func ipBlocked(remoteAddr string, info docker.TargetInfo) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		return false // can't parse; let through
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	if len(info.AllowList) > 0 {
+		allowed := false
+		for _, n := range info.AllowList {
+			if n.Contains(ip) {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return true
+		}
+	}
+	for _, n := range info.BlockList {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 // acceptLoop runs in a goroutine for each target listener.
 func (s *ProxyServer) acceptLoop(ts *targetState) {
 	for {
@@ -212,7 +244,12 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 
 	ctx := context.Background()
 
-	log.Printf("proxy: new connection to \033[33m%s\033[0m (port %d) from %s",
+	if ipBlocked(conn.RemoteAddr().String(), ts.info) {
+		log.Printf("proxy: new connection to \033[33m%s\033[0m (port %d) from \033[36m%s\033[0m \033[31m(blocked)\033[0m",
+			ts.info.ContainerName, ts.targetPort, conn.RemoteAddr())
+		return
+	}
+	log.Printf("proxy: new connection to \033[33m%s\033[0m (port %d) from \033[36m%s\033[0m",
 		ts.info.ContainerName, ts.targetPort, conn.RemoteAddr())
 
 	// Ensure the container is running
