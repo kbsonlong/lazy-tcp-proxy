@@ -29,6 +29,8 @@
 ```sh
 docker run -d \
 	-v /var/run/docker.sock:/var/run/docker.sock \
+    -e IDLE_TIMEOUT_SECS=30 \
+    -e POLL_INTERVAL_SECS=5 \
 	-p "9000-9999:9000-9999" \
     --restart=always \
     --name lazy-tcp-proxy \

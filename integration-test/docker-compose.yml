@@ -5,6 +5,8 @@ services:
     build: .
     image: test-npm-socket
     container_name: test-npm-socket
+    networks:
+      - private-network
     labels:
       - "lazy-tcp-proxy.enabled=true"
       - "lazy-tcp-proxy.ports=9000:3000"
@@ -13,6 +15,8 @@ services:
     image: traefik/whoami
     container_name: test-whoami
     command: ["--verbose"]
+    networks:
+      - private-network
     labels:
       - "lazy-tcp-proxy.enabled=true"
       - "lazy-tcp-proxy.ports=9001:80"
@@ -33,6 +37,44 @@ services:
       - "lazy-tcp-proxy.enabled=true"
       - "lazy-tcp-proxy.ports=9002:2222"
 
+  # postgres:
+  #   image: postgres:17.6-alpine3.22
+  #   container_name: test-postgres
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_USER: ${POSTGRES_USER:-admin}
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+  #     POSTGRES_DB: ${POSTGRES_DB:-mydatabase}
+  #   volumes:
+  #     - postgres_data_176:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin}"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  #   labels:
+  #     - "lazy-tcp-proxy.enabled=true"
+  #     - "lazy-tcp-proxy.ports=9432:5432"
+
+  # mongo:
+  #   image: mongo:7.0.5
+  #   container_name: test-mongo
+  #   restart: unless-stopped
+  #   environment:
+  #     MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-admin}
+  #     MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-password}
+  #     MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE:-mydatabase}
+  #   volumes:
+  #     - mongo_data:/data/db
+  #   labels:
+  #     - "lazy-tcp-proxy.enabled=true"
+  #     - "lazy-tcp-proxy.ports=9017:27017"
+
+volumes:
+  postgres_data_176:
+  mongo_data:
+
 networks:
-  my-net:
+  private-network:
     driver: bridge
+    internal: true
