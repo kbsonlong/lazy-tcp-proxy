@@ -39,13 +39,13 @@ docker run -d \
 	-v /var/run/docker.sock:/var/run/docker.sock \
     -e IDLE_TIMEOUT_SECS=30 \
     -e POLL_INTERVAL_SECS=5 \
-	-p "9000-9999:9000-9999" \
+	-p "9000-9099:9000-9099" \
     --restart=always \
     --name lazy-tcp-proxy \
 	mountainpass/lazy-tcp-proxy
 ```
 
-Or use the provided `docker-compose.yml`.
+Or use the provided [`docker-compose.yml`](docker-compose.yml).
 
 Then add labels to new or existing containers (see below).
 
