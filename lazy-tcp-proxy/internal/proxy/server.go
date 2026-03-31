@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,7 +17,15 @@ import (
 const (
 	dialRetries  = 30
 	dialInterval = time.Second
+	copyBufSize  = 32 * 1024
 )
+
+var copyBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, copyBufSize)
+		return &b
+	},
+}
 
 // targetState holds runtime state for a single listen-port→container-port mapping.
 type targetState struct {
@@ -197,6 +206,7 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 		if ts.activeConns.Add(-1) == 0 {
 			log.Printf("proxy: last connection to \033[33m%s\033[0m closed; idle timer started (container will stop in ~%s if no new connections)",
 				ts.info.ContainerName, s.idleTimeout)
+			go debug.FreeOSMemory()
 		}
 	}()
 
@@ -263,13 +273,17 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 
 	go func() {
 		defer wg.Done()
-		io.Copy(upstream, conn) //nolint:errcheck
+		buf := copyBufPool.Get().(*[]byte)
+		defer copyBufPool.Put(buf)
+		io.CopyBuffer(upstream, conn, *buf) //nolint:errcheck
 		closeAll()
 	}()
 
 	go func() {
 		defer wg.Done()
-		io.Copy(conn, upstream) //nolint:errcheck
+		buf := copyBufPool.Get().(*[]byte)
+		defer copyBufPool.Put(buf)
+		io.CopyBuffer(conn, upstream, *buf) //nolint:errcheck
 		closeAll()
 	}()
 
