@@ -1,7 +1,7 @@
-version: "3.8"
 services:
   lazy-tcp-proxy:
     build: ./lazy-tcp-proxy
+    container_name: lazy-tcp-proxy
     image: lazy-tcp-proxy:latest
     environment:
       - DOCKER_SOCK=/var/run/docker.sock
