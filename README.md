@@ -39,20 +39,7 @@ docker run -d \
 
 Or use the provided `docker-compose.yml`.
 
----
-
-## Building and Publishing
-
-```sh
-cd lazy-tcp-proxy
-VERSION=1.`date +%Y%m%d`.`git rev-parse --short=8 HEAD`
-docker buildx build \
-  --platform linux/amd64,linux/arm64/v8 \
-  --tag mountainpass/lazy-tcp-proxy:${VERSION} \
-  --tag mountainpass/lazy-tcp-proxy:latest \
-  --push \
-  .
-```
+Then add labels to new or existing containers (see below).
 
 ---
 
@@ -69,6 +56,21 @@ Example:
 labels:
 	- "lazy-tcp-proxy.enabled=true"
 	- "lazy-tcp-proxy.ports=9000:80,9001:8080"
+```
+
+---
+
+## Building and Publishing
+
+```sh
+cd lazy-tcp-proxy
+VERSION=1.`date +%Y%m%d`.`git rev-parse --short=8 HEAD`
+docker buildx build \
+  --platform linux/amd64,linux/arm64/v8 \
+  --tag mountainpass/lazy-tcp-proxy:${VERSION} \
+  --tag mountainpass/lazy-tcp-proxy:latest \
+  --push \
+  .
 ```
 
 ---
