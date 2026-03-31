@@ -22,3 +22,5 @@
 | REQ-018 | Reduce Proxy Memory via Buffer Pooling & Idle GC | Medium | Completed | 2026-03-31 | [2026-03-31-reduce-proxy-memory.md](2026-03-31-reduce-proxy-memory.md) |
 | REQ-019 | Fix Dependabot Security Alerts (docker + otel)   | High   | Completed   | 2026-03-31 | [2026-03-31-fix-dependabot-security-alerts.md](2026-03-31-fix-dependabot-security-alerts.md) |
 | REQ-020 | Fix CVE-2025-54410: Upgrade docker/docker to v28  | High   | Completed   | 2026-03-31 | [2026-03-31-fix-docker-cve-2025-54410.md](2026-03-31-fix-docker-cve-2025-54410.md) |
+| REQ-021 | Cyan Source IP Address in Connection Logs         | Low    | Planned     | 2026-03-31 | [2026-03-31-cyan-source-ip.md](2026-03-31-cyan-source-ip.md) |
+| REQ-022 | Per-Service Allow-List and Block-List via Labels  | Medium | Planned     | 2026-03-31 | [2026-03-31-allow-block-lists.md](2026-03-31-allow-block-lists.md) |
