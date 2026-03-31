@@ -21,3 +21,4 @@
 | REQ-017 | Leave Joined Networks on Shutdown             | Medium | Completed | 2026-03-31 | [2026-03-31-leave-networks-on-shutdown.md](2026-03-31-leave-networks-on-shutdown.md) |
 | REQ-018 | Reduce Proxy Memory via Buffer Pooling & Idle GC | Medium | Completed | 2026-03-31 | [2026-03-31-reduce-proxy-memory.md](2026-03-31-reduce-proxy-memory.md) |
 | REQ-019 | Fix Dependabot Security Alerts (docker + otel)   | High   | Completed   | 2026-03-31 | [2026-03-31-fix-dependabot-security-alerts.md](2026-03-31-fix-dependabot-security-alerts.md) |
+| REQ-020 | Fix CVE-2025-54410: Upgrade docker/docker to v28  | High   | Completed   | 2026-03-31 | [2026-03-31-fix-docker-cve-2025-54410.md](2026-03-31-fix-docker-cve-2025-54410.md) |

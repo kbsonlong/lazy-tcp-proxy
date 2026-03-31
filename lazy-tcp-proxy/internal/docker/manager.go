@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 )
 
@@ -216,7 +216,7 @@ func (m *Manager) JoinNetworks(ctx context.Context, networkIDs []string) ([]stri
 	var joined []string
 	for _, netID := range networkIDs {
 		// Inspect the network to check current membership
-		netInfo, err := m.cli.NetworkInspect(ctx, netID, types.NetworkInspectOptions{})
+		netInfo, err := m.cli.NetworkInspect(ctx, netID, network.InspectOptions{})
 		if err != nil {
 			log.Printf("docker: could not inspect network \033[32m%s\033[0m: %v", netID, err)
 			continue
@@ -359,7 +359,7 @@ func (m *Manager) WatchEvents(ctx context.Context, handler TargetHandler) {
 		f.Add("event", "destroy")
 		f.Add("event", "create")
 
-		msgCh, errCh := m.cli.Events(ctx, types.EventsOptions{Filters: f})
+		msgCh, errCh := m.cli.Events(ctx, events.ListOptions{Filters: f})
 
 		log.Printf("docker: watching events...")
 		eventLoop := true
