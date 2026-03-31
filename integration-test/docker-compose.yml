@@ -1,0 +1,38 @@
+# docker run -it --rm --network stack1_my-net --entrypoint /bin/sh curlimages/curl
+
+services:
+  test-npm-socket:
+    build: .
+    image: test-npm-socket
+    container_name: test-npm-socket
+    labels:
+      - "lazy-tcp-proxy.enabled=true"
+      - "lazy-tcp-proxy.ports=9000:3000"
+
+  whoami:
+    image: traefik/whoami
+    container_name: test-whoami
+    command: ["--verbose"]
+    labels:
+      - "lazy-tcp-proxy.enabled=true"
+      - "lazy-tcp-proxy.ports=9001:80"
+
+  # ssh admin@localhost -p 9002
+  openssh-server:
+    image: lscr.io/linuxserver/openssh-server:latest
+    container_name: test-openssh-server
+    hostname: openssh-server #optional
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+      - PASSWORD_ACCESS=true
+      - USER_NAME=admin
+      - USER_PASSWORD=password
+    labels:
+      - "lazy-tcp-proxy.enabled=true"
+      - "lazy-tcp-proxy.ports=9002:2222"
+
+networks:
+  my-net:
+    driver: bridge

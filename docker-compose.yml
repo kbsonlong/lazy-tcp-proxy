@@ -5,9 +5,12 @@ services:
     image: lazy-tcp-proxy:latest
     environment:
       - DOCKER_SOCK=/var/run/docker.sock
+      - POLL_INTERVAL_SECS=10
+      - IDLE_TIMEOUT_SECS=30
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "9000-9999:9000-9999"
     restart: unless-stopped
+
     
