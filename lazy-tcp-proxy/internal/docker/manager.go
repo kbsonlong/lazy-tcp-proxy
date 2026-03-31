@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/docker/docker/api/types"
@@ -41,8 +42,10 @@ type TargetHandler interface {
 
 // Manager wraps the Docker client with proxy-specific logic.
 type Manager struct {
-	cli     *client.Client
-	selfID  string
+	cli         *client.Client
+	selfID      string
+	mu          sync.Mutex
+	joinedNets  map[string]string // networkID → name
 }
 
 // NewManager creates a new DockerManager. The Docker socket path can be set via
@@ -58,7 +61,7 @@ func NewManager() (*Manager, error) {
 		return nil, fmt.Errorf("creating docker client: %w", err)
 	}
 
-	m := &Manager{cli: cli}
+	m := &Manager{cli: cli, joinedNets: make(map[string]string)}
 	m.selfID = m.SelfContainerID()
 	if m.selfID != "" {
 		log.Printf("docker: detected self container ID: %s", m.selfID)
@@ -240,10 +243,34 @@ func (m *Manager) JoinNetworks(ctx context.Context, networkIDs []string) ([]stri
 			}
 		} else {
 			joined = append(joined, netInfo.Name)
+			m.mu.Lock()
+			m.joinedNets[netID] = netInfo.Name
+			m.mu.Unlock()
 		}
 	}
 
 	return joined, nil
+}
+
+// LeaveNetworks disconnects the proxy container from all networks it joined at runtime.
+func (m *Manager) LeaveNetworks(ctx context.Context) {
+	if m.selfID == "" {
+		return
+	}
+
+	m.mu.Lock()
+	nets := make(map[string]string, len(m.joinedNets))
+	for id, name := range m.joinedNets {
+		nets[id] = name
+	}
+	m.mu.Unlock()
+
+	for id, name := range nets {
+		log.Printf("docker: leaving network \033[32m%s\033[0m", name)
+		if err := m.cli.NetworkDisconnect(ctx, id, m.selfID, false); err != nil {
+			log.Printf("docker: failed to leave network \033[32m%s\033[0m: %v", name, err)
+		}
+	}
 }
 
 // EnsureRunning starts the container if it is not already running.

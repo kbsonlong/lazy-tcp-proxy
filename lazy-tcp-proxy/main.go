@@ -92,5 +92,7 @@ func main() {
 
 	log.Println("lazy-tcp-proxy running; waiting for shutdown signal")
 	<-ctx.Done()
+	log.Println("lazy-tcp-proxy shutting down")
+	mgr.LeaveNetworks(context.Background())
 	log.Println("lazy-tcp-proxy stopped")
 }
