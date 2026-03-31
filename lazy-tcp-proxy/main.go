@@ -9,8 +9,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nickgrealy/lazy-tcp-proxy/internal/docker"
-	"github.com/nickgrealy/lazy-tcp-proxy/internal/proxy"
+	"github.com/mountain-pass/lazy-tcp-proxy/internal/docker"
+	"github.com/mountain-pass/lazy-tcp-proxy/internal/proxy"
 )
 
 const (

@@ -13,7 +13,7 @@ The project subfolder, Go module path, binary name, Docker labels, and log strin
 Rename every `tpc` occurrence to `tcp` across the repository:
 
 - Subfolder: `lazy-tpc-proxy/` → `lazy-tcp-proxy/`
-- Go module: `github.com/nickgrealy/lazy-tpc-proxy` → `github.com/nickgrealy/lazy-tcp-proxy`
+- Go module: `github.com/mountain-pass/lazy-tpc-proxy` → `github.com/mountain-pass/lazy-tcp-proxy`
 - Import paths in all `.go` files
 - Docker labels used in code: `lazy-tpc-proxy.enabled` → `lazy-tcp-proxy.enabled`, `lazy-tpc-proxy.port` → `lazy-tcp-proxy.port`
 - Binary name in Dockerfile: `lazy-tpc-proxy` → `lazy-tcp-proxy`

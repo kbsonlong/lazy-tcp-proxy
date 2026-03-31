@@ -1,4 +1,4 @@
-module github.com/nickgrealy/lazy-tcp-proxy
+module github.com/mountain-pass/lazy-tcp-proxy
 
 go 1.21
 
