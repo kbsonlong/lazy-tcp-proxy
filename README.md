@@ -128,6 +128,17 @@ flowchart TD
 
 ---
 
+## Ideal Use Cases
+
+Services that are accessed infrequently and can tolerate a few seconds of startup latency on the first connection. Good examples:
+
+- **Home lab / self-hosted services** — a Minecraft server, Gitea, Jellyfin, or a personal wiki that only a handful of people use occasionally
+- **Development environments** — per-branch or per-developer services that sit idle most of the day
+- **Low-traffic internal tools** — dashboards, admin panels, CI artefact browsers that are visited a few times a day
+- **Demo / staging environments** — services that need to be reachable on-demand but don't justify running 24/7
+
+---
+
 ## Building and Publishing
 
 ```sh
