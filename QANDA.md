@@ -5,13 +5,13 @@
 
 > Only by looking at the logs.
 >
-> [Let me know if you would like an alternative!](/issues) (e.g. a dedicated HTTP endpoint that lists managed containers)
+> [Let me know if you would like an alternative!](/lazy-tcp-proxy/issues) (e.g. a dedicated HTTP endpoint that lists managed containers)
 
 ### What happens when there aren't enough resources?
 
 > The app has no awareness of resource capacity. It will just try to start the requested service.
 >
-> [Let me know how if it should handle this scenario differently!](/issues)
+> [Let me know how if it should handle this scenario differently!](/lazy-tcp-proxy/issues)
 
 ### Is there an example setup I can try?
 
@@ -29,13 +29,13 @@
 
 > Not yet. But it could.
 >
-> [Let me know if you want this!](/issues)
+> [Let me know if you want this!](/lazy-tcp-proxy/issues)
 
 ### Does the app support calling webhooks?
 
 > Not yet. But it could.
 >
-> [Let me know if you want this!](/issues)
+> [Let me know if you want this!](/lazy-tcp-proxy/issues)
 
 ### Does the app support Docker Swarm/Stacks?
 
@@ -43,7 +43,7 @@
 >
 > It would be nice if it could also scale >1 if required.
 >
-> [Let me know if you want this!](/issues)
+> [Let me know if you want this!](/lazy-tcp-proxy/issues)
 
 ### Does the app support Kubernetes?
 
@@ -51,4 +51,4 @@
 >
 > It would be nice if it could also scale >1 if required.
 >
-> [Let me know if you want this!](/issues)
+> [Let me know if you want this!](/lazy-tcp-proxy/issues)
