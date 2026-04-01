@@ -6,7 +6,7 @@
 
 ## Problem Statement
 
-The proxy currently handles TCP only. Services that use UDP (e.g. DNS, game servers, VoIP, syslog, QUIC) cannot be lazily started via the proxy. Operators must either keep those containers running permanently or build separate tooling.
+The proxy currently handles TCP only. Services that use UDP (e.g. DNS, game servers, VoIP, syslog, QUIC) cannot be lazily started via the proxy. Operators must manage those containers separately and cannot benefit from the proxy's automatic start-on-demand and idle-stop behaviour.
 
 ## Functional Requirements
 
