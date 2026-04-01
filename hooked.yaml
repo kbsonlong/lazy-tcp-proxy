@@ -1,0 +1,29 @@
+
+env:
+  default:
+    GREETING: Hello
+
+scripts:
+  clean:
+    $cmd: |
+      docker compose down
+      docker rmi lazy-tcp-proxy
+      docker rmi mountainpass/lazy-tcp-proxy
+
+  build:
+    $cmd: |
+      docker compose down
+      docker rmi lazy-tcp-proxy
+      docker rmi mountainpass/lazy-tcp-proxy
+      docker compose build
+
+  publish:
+    $cmd: |
+      cd lazy-tcp-proxy
+      VERSION=1.`date +%Y%m%d`.`git rev-parse --short=8 HEAD`
+      docker buildx build \
+        --platform linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6 \
+        --tag mountainpass/lazy-tcp-proxy:$VERSION \
+        --tag mountainpass/lazy-tcp-proxy:latest \
+        --push \
+        .
