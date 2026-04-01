@@ -20,7 +20,7 @@
 
 ### Is there any way to see what containers are managed?
 
-> Yes! The logs, and the new `STATUS_PORT` HTTP endpoint.
+> Yes! The logs, and the new http://localhost:8080/status HTTP endpoint (`STATUS_PORT` environment variable).
 
 ### What happens when there aren't enough resources?
 
@@ -48,9 +48,7 @@
 
 ### Does the app support calling webhooks?
 
-> Not yet. But it could.
->
-> [Let me know if you want this!](../../issues)
+> Yes! Check the `lazy-tcp-proxy.webhook-url=...` configuration label.
 
 ### Does the app support Docker Swarm/Stacks?
 
