@@ -27,3 +27,4 @@
 | REQ-023 | Discovered/Registered Containers Start as Idle    | High   | Completed   | 2026-04-01 | [2026-04-01-discovered-containers-start-idle.md](2026-04-01-discovered-containers-start-idle.md) |
 | REQ-024 | Handle Port Conflicts Between Containers          | High   | Completed   | 2026-04-01 | [2026-04-01-handle-port-conflicts.md](2026-04-01-handle-port-conflicts.md) |
 | REQ-025 | HTTP Status Endpoint (List Managed Containers)    | High   | Planned     | 2026-04-01 | [2026-04-01-http-status-endpoint.md](2026-04-01-http-status-endpoint.md) |
+| REQ-026 | Webhook Support for Container Lifecycle Events    | Medium | Planned     | 2026-04-01 | [2026-04-01-webhook-support.md](2026-04-01-webhook-support.md) |
