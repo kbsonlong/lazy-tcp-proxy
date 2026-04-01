@@ -3,8 +3,6 @@
 
 # Overview
 
-## What:
-
 **On-demand TCP proxy for Docker containers.**
 
 ## Introduction:
@@ -21,18 +19,6 @@ To save compute resources (CPU, RAM) on a single host by keeping containers stop
 > "Finally, scale to zero!" - Nick G.
 
 > "This is something that should really be built into Docker!" - Tom H.
-
----
-
-## Feature Request
-
-This should be core functionality in the docker engine. As such, I've raised a Feature Request to add this behaviour - https://github.com/docker/roadmap/issues/899
-
----
-
-## Questions and Answers
-
-[Can be found here.](QANDA.md)
 
 ---
 
@@ -89,6 +75,18 @@ labels:
 | `DOCKER_SOCK`       | Path to Docker socket                                              | `/var/run/docker.sock`    |
 
 All are optional; defaults are safe for most setups.
+
+---
+
+## Docker Engine Feature Request
+
+This should be core functionality in the docker engine. As such, I've raised a Feature Request to add this behaviour - https://github.com/docker/roadmap/issues/899
+
+---
+
+## Questions and Answers
+
+[Can be found here.](QANDA.md)
 
 ---
 
