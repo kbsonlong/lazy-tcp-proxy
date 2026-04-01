@@ -74,8 +74,55 @@ labels:
 | `IDLE_TIMEOUT_SECS` | How long (in seconds) a container must be idle before being stopped| 120                       |
 | `POLL_INTERVAL_SECS`| How often (in seconds) to check for idle containers                | 15                        |
 | `DOCKER_SOCK`       | Path to Docker socket                                              | `/var/run/docker.sock`    |
+| `STATUS_PORT`       | Port for the HTTP status server; set to `0` to disable            | 8080                      |
 
 All are optional; defaults are safe for most setups.
+
+---
+
+## Status Endpoint
+
+The proxy exposes a lightweight HTTP server for operational visibility.
+
+### `GET /status`
+
+Returns a JSON array of all currently managed containers and their state.
+
+```sh
+curl http://localhost:8080/status
+```
+
+```json
+[
+  {
+    "container_id": "a1b2c3d4e5f6",
+    "container_name": "my-service",
+    "listen_port": 9000,
+    "target_port": 80,
+    "running": true,
+    "active_conns": 1,
+    "last_active": "2026-04-01T12:34:56Z"
+  },
+  {
+    "container_id": "b2c3d4e5f6a1",
+    "container_name": "idle-service",
+    "listen_port": 9001,
+    "target_port": 8080,
+    "running": false,
+    "active_conns": 0,
+    "last_active": null
+  }
+]
+```
+
+### `GET /health`
+
+Minimal liveness probe — always returns `200 ok` while the proxy is running.
+
+```sh
+curl http://localhost:8080/health
+# ok
+```
 
 ---
 
