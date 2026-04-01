@@ -1,11 +1,21 @@
 
 # Questions and Answers
 
-### Is there any way to find out what containers are managed?
+## Table of contents
 
-> Only by looking at the logs.
->
-> [Let me know if you would like an alternative!](../../issues) (e.g. a dedicated HTTP endpoint that lists managed containers)
+- [Is there any way to see what containers are managed?](#is-there-any-way-to-see-what-containers-are-managed)
+- [What happens when there aren't enough resources?](#what-happens-when-there-arent-enough-resources)
+- [Is there an example setup I can try?](#is-there-an-example-setup-i-can-try)
+- [What happens on container port conflicts?](#what-happens-on-container-port-conflicts)
+- [Can I run two instances of lazy-tcp-proxy?](#can-i-run-two-instances-of-lazy-tcp-proxy)
+- [Does the app handle UDP Traffic?](#does-the-app-handle-udp-traffic)
+- [Does the app support calling webhooks?](#does-the-app-support-calling-webhooks)
+
+
+
+### Is there any way to see what containers are managed?
+
+> Yes! The logs, and the new `STATUS_PORT` HTTP endpoint.
 
 ### What happens when there aren't enough resources?
 
@@ -39,7 +49,7 @@
 
 ### Does the app support Docker Swarm/Stacks?
 
-> Not yet. But it could.
+> Maybe - I haven't tested this. But it could.
 >
 > It would be nice if it could also scale >1 if required.
 >
@@ -50,5 +60,25 @@
 > Not yet. But it could.
 >
 > It would be nice if it could also scale >1 if required.
+>
+> [Let me know if you want this!](../../issues)
+
+### Does the app support starting based on a webhook/cron schedule/message queue?
+
+> Not yet. But it could.
+>
+> [Let me know if you want this!](../../issues)
+
+### Does this app support load balancing?
+
+> No. But with Docker Swarms we might get this for free.
+>
+> [Let me know if you want this!](../../issues)
+
+### Does this app support transitive container starting?
+
+> E.g. If this port is accessed, start these two containers.
+> 
+> Not yet. But it could.
 >
 > [Let me know if you want this!](../../issues)

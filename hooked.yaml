@@ -16,6 +16,7 @@ scripts:
       docker rmi lazy-tcp-proxy
       docker rmi mountainpass/lazy-tcp-proxy
       docker compose build
+      docker compose up
 
   publish:
     $cmd: |
