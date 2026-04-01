@@ -52,6 +52,7 @@ Add these labels to any container you want proxied/managed:
 | `lazy-tcp-proxy.ports` | Yes | Comma-separated `<listen>:<target>` port pairs |
 | `lazy-tcp-proxy.allow-list` | No | Comma-separated IPs/CIDRs. If set, only matching source addresses are forwarded; all others are silently dropped |
 | `lazy-tcp-proxy.block-list` | No | Comma-separated IPs/CIDRs. If set, matching source addresses are silently dropped; all others are forwarded |
+| `lazy-tcp-proxy.webhook-url` | No | HTTP(S) URL to POST lifecycle events to (see [Webhooks](#webhooks)) |
 
 Both `allow-list` and `block-list` accept plain IP addresses (e.g. `127.0.0.1`, `::1`) and CIDR ranges (e.g. `192.168.0.0/16`, `fd00::/8`). If both labels are set, the allow-list is evaluated first. Blocked connections are logged with a red `(blocked)` suffix and do **not** wake the container.
 
@@ -122,6 +123,37 @@ Minimal liveness probe — always returns `200 ok` while the proxy is running.
 ```sh
 curl http://localhost:8080/health
 # ok
+```
+
+---
+
+## Webhooks
+
+Containers can declare a webhook URL via the `lazy-tcp-proxy.webhook-url` label. The proxy will POST a JSON payload to that URL on the following events:
+
+| Event | When |
+|-------|------|
+| `container_started` | Proxy successfully started the container on an inbound connection |
+| `container_stopped` | Proxy stopped the container due to idle timeout |
+
+**Payload**:
+```json
+{
+  "event": "container_started",
+  "container_id": "a1b2c3d4e5f6",
+  "container_name": "my-service",
+  "timestamp": "2026-04-01T12:34:56Z"
+}
+```
+
+Webhook calls are fire-and-forget with a 5-second timeout. Failures are logged as warnings and never affect proxying. If the label is absent, no webhook is fired.
+
+**Example**:
+```yaml
+labels:
+  - "lazy-tcp-proxy.enabled=true"
+  - "lazy-tcp-proxy.ports=9000:80"
+  - "lazy-tcp-proxy.webhook-url=https://hooks.example.com/my-service"
 ```
 
 ---

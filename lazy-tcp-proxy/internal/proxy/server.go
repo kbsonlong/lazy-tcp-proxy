@@ -1,11 +1,14 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
@@ -50,20 +53,30 @@ type targetState struct {
 	removed     bool
 }
 
+// webhookPayload is the JSON body sent to a container's webhook URL.
+type webhookPayload struct {
+	Event         string `json:"event"`
+	ContainerID   string `json:"container_id"`
+	ContainerName string `json:"container_name"`
+	Timestamp     string `json:"timestamp"`
+}
+
 // ProxyServer manages TCP listeners and proxies connections to Docker containers.
 type ProxyServer struct {
-	docker      *docker.Manager
-	mu          sync.RWMutex
-	targets     map[int]*targetState // keyed by listen port
-	idleTimeout time.Duration
+	docker        *docker.Manager
+	mu            sync.RWMutex
+	targets       map[int]*targetState // keyed by listen port
+	idleTimeout   time.Duration
+	webhookClient *http.Client
 }
 
 // NewServer creates a new ProxyServer backed by the given DockerManager.
 func NewServer(d *docker.Manager, idleTimeout time.Duration) *ProxyServer {
 	return &ProxyServer{
-		docker:      d,
-		targets:     make(map[int]*targetState),
-		idleTimeout: idleTimeout,
+		docker:        d,
+		targets:       make(map[int]*targetState),
+		idleTimeout:   idleTimeout,
+		webhookClient: &http.Client{Timeout: 5 * time.Second},
 	}
 }
 
@@ -93,6 +106,33 @@ func (s *ProxyServer) Snapshot() []TargetSnapshot {
 		})
 	}
 	return out
+}
+
+// fireWebhook POSTs a lifecycle event to the container's webhook URL.
+// Must be called in a goroutine — never blocks the proxy path.
+func (s *ProxyServer) fireWebhook(webhookURL, event, containerID, containerName string) {
+	id := containerID
+	if len(id) > 12 {
+		id = id[:12]
+	}
+	payload := webhookPayload{
+		Event:         event,
+		ContainerID:   id,
+		ContainerName: containerName,
+		Timestamp:     time.Now().UTC().Format(time.RFC3339),
+	}
+	body, _ := json.Marshal(payload)
+	resp, err := s.webhookClient.Post(webhookURL, "application/json", bytes.NewReader(body))
+	if err != nil {
+		log.Printf("proxy: webhook: POST %s event=%s error: %v", webhookURL, event, err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		log.Printf("proxy: webhook: POST %s event=%s non-2xx response: %d", webhookURL, event, resp.StatusCode)
+		return
+	}
+	log.Printf("proxy: webhook: delivered event=%s to %s (%d)", event, webhookURL, resp.StatusCode)
 }
 
 // RegisterTarget adds or updates a target. One listener is created per port mapping.
@@ -193,6 +233,7 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 	type entry struct {
 		containerID string
 		name        string
+		webhookURL  string
 		allIdle     bool
 		states      []*targetState
 	}
@@ -203,7 +244,7 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 		}
 		e, ok := byContainer[ts.info.ContainerID]
 		if !ok {
-			e = &entry{containerID: ts.info.ContainerID, name: ts.info.ContainerName, allIdle: true}
+			e = &entry{containerID: ts.info.ContainerID, name: ts.info.ContainerName, webhookURL: ts.info.WebhookURL, allIdle: true}
 			byContainer[ts.info.ContainerID] = e
 		}
 		e.states = append(e.states, ts)
@@ -220,6 +261,9 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 				// ContainerStopped, but this covers the window before it arrives.
 				for _, ts := range e.states {
 					ts.running = false
+				}
+				if e.webhookURL != "" {
+					go s.fireWebhook(e.webhookURL, "container_stopped", e.containerID, e.name)
 				}
 			}
 		}
@@ -306,6 +350,9 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 	if err := s.docker.EnsureRunning(ctx, ts.info.ContainerID); err != nil {
 		log.Printf("proxy: could not start container \033[33m%s\033[0m: %v", ts.info.ContainerName, err)
 		return
+	}
+	if ts.info.WebhookURL != "" {
+		go s.fireWebhook(ts.info.WebhookURL, "container_started", ts.info.ContainerID, ts.info.ContainerName)
 	}
 
 	// Determine preferred network (first in list)

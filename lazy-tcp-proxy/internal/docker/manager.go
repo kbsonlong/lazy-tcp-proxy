@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -35,6 +36,7 @@ type TargetInfo struct {
 	AllowList     []net.IPNet // empty = no restriction (all IPs allowed)
 	BlockList     []net.IPNet // empty = no restriction (no IPs blocked)
 	Running       bool        // true if the container was running at the time of inspection
+	WebhookURL    string      // empty = no webhook
 }
 
 // parseIPList parses a comma-delimited string of IPs and/or CIDRs into a
@@ -241,6 +243,15 @@ func (m *Manager) containerToTargetInfo(ctx context.Context, containerID string)
 		blockList = parseIPList("lazy-tcp-proxy.block-list", v)
 	}
 
+	var webhookURL string
+	if v := strings.TrimSpace(inspect.Config.Labels["lazy-tcp-proxy.webhook-url"]); v != "" {
+		if _, err := url.ParseRequestURI(v); err != nil {
+			log.Printf("docker: container %s: ignoring invalid webhook URL %q: %v", name, v, err)
+		} else {
+			webhookURL = v
+		}
+	}
+
 	return TargetInfo{
 		ContainerID:   containerID,
 		ContainerName: name,
@@ -249,6 +260,7 @@ func (m *Manager) containerToTargetInfo(ctx context.Context, containerID string)
 		AllowList:     allowList,
 		BlockList:     blockList,
 		Running:       inspect.State.Running,
+		WebhookURL:    webhookURL,
 	}, nil
 }
 
