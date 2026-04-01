@@ -24,3 +24,4 @@
 | REQ-020 | Fix CVE-2025-54410: Upgrade docker/docker to v28  | High   | Completed   | 2026-03-31 | [2026-03-31-fix-docker-cve-2025-54410.md](2026-03-31-fix-docker-cve-2025-54410.md) |
 | REQ-021 | Cyan Source IP Address in Connection Logs         | Low    | Completed   | 2026-03-31 | [2026-03-31-cyan-source-ip.md](2026-03-31-cyan-source-ip.md) |
 | REQ-022 | Per-Service Allow-List and Block-List via Labels  | Medium | Completed   | 2026-03-31 | [2026-03-31-allow-block-lists.md](2026-03-31-allow-block-lists.md) |
+| REQ-023 | Discovered/Registered Containers Start as Idle    | High   | Completed   | 2026-04-01 | [2026-04-01-discovered-containers-start-idle.md](2026-04-01-discovered-containers-start-idle.md) |

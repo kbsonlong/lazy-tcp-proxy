@@ -64,7 +64,7 @@ func (s *ProxyServer) RegisterTarget(info docker.TargetInfo) {
 		if existing, ok := s.targets[m.ListenPort]; ok {
 			existing.info = info
 			existing.targetPort = m.TargetPort
-			existing.running = true
+			existing.running = info.Running
 			existing.removed = false
 			log.Printf("proxy: updated target \033[33m%s\033[0m on port %d->%d", info.ContainerName, m.ListenPort, m.TargetPort)
 			continue
@@ -80,8 +80,8 @@ func (s *ProxyServer) RegisterTarget(info docker.TargetInfo) {
 			info:       info,
 			targetPort: m.TargetPort,
 			listener:   ln,
-			lastActive: time.Now(),
-			running:    true,
+			lastActive: time.Time{},  // zero — immediately idle
+			running:    info.Running,
 		}
 		s.targets[m.ListenPort] = ts
 		log.Printf("proxy: registered target \033[33m%s\033[0m, listening on port %d->%d", info.ContainerName, m.ListenPort, m.TargetPort)

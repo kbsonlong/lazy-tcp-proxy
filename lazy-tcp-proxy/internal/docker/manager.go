@@ -34,6 +34,7 @@ type TargetInfo struct {
 	NetworkIDs    []string
 	AllowList     []net.IPNet // empty = no restriction (all IPs allowed)
 	BlockList     []net.IPNet // empty = no restriction (no IPs blocked)
+	Running       bool        // true if the container was running at the time of inspection
 }
 
 // parseIPList parses a comma-delimited string of IPs and/or CIDRs into a
@@ -247,6 +248,7 @@ func (m *Manager) containerToTargetInfo(ctx context.Context, containerID string)
 		NetworkIDs:    networkIDs,
 		AllowList:     allowList,
 		BlockList:     blockList,
+		Running:       inspect.State.Running,
 	}, nil
 }
 
