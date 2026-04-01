@@ -10,6 +10,11 @@
 - [Can I run two instances of lazy-tcp-proxy?](#can-i-run-two-instances-of-lazy-tcp-proxy)
 - [Does the app handle UDP Traffic?](#does-the-app-handle-udp-traffic)
 - [Does the app support calling webhooks?](#does-the-app-support-calling-webhooks)
+- [Does the app support Docker Swarm/Stacks?](#does-the-app-support-docker-swarmstacks)
+- [Does the app support Kubernetes?](#does-the-app-support-kubernetes)
+- [Does the app support starting based on a webhook/cron schedule/message queue?](#does-the-app-support-starting-based-on-a-webhookcron-schedulemessage-queue)
+- [Does this app support load balancing?](#does-this-app-support-load-balancing)
+- [Does this app support transitive container starting?](#does-this-app-support-transitive-container-starting)
 
 
 
