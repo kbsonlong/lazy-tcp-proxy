@@ -20,6 +20,18 @@ const (
 	copyBufSize  = 32 * 1024
 )
 
+// TargetSnapshot is a point-in-time copy of a single port mapping's state,
+// safe to read without holding any lock.
+type TargetSnapshot struct {
+	ContainerID   string     `json:"container_id"`
+	ContainerName string     `json:"container_name"`
+	ListenPort    int        `json:"listen_port"`
+	TargetPort    int        `json:"target_port"`
+	Running       bool       `json:"running"`
+	ActiveConns   int32      `json:"active_conns"`
+	LastActive    *time.Time `json:"last_active"`
+}
+
 var copyBufPool = sync.Pool{
 	New: func() any {
 		b := make([]byte, copyBufSize)
@@ -53,6 +65,34 @@ func NewServer(d *docker.Manager, idleTimeout time.Duration) *ProxyServer {
 		targets:     make(map[int]*targetState),
 		idleTimeout: idleTimeout,
 	}
+}
+
+// Snapshot returns a point-in-time copy of all registered targets.
+func (s *ProxyServer) Snapshot() []TargetSnapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]TargetSnapshot, 0, len(s.targets))
+	for listenPort, ts := range s.targets {
+		var la *time.Time
+		if !ts.lastActive.IsZero() {
+			t := ts.lastActive
+			la = &t
+		}
+		id := ts.info.ContainerID
+		if len(id) > 12 {
+			id = id[:12]
+		}
+		out = append(out, TargetSnapshot{
+			ContainerID:   id,
+			ContainerName: ts.info.ContainerName,
+			ListenPort:    listenPort,
+			TargetPort:    ts.targetPort,
+			Running:       ts.running,
+			ActiveConns:   ts.activeConns.Load(),
+			LastActive:    la,
+		})
+	}
+	return out
 }
 
 // RegisterTarget adds or updates a target. One listener is created per port mapping.

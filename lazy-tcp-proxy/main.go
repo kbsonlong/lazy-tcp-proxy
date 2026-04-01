@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -44,6 +47,46 @@ func resolvePollInterval() time.Duration {
 	return time.Duration(n) * time.Second
 }
 
+const defaultStatusPort = 8080
+
+func resolveStatusPort() int {
+	raw := os.Getenv("STATUS_PORT")
+	if raw == "" {
+		return defaultStatusPort
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		log.Printf("STATUS_PORT=%q is invalid; using default %d", raw, defaultStatusPort)
+		return defaultStatusPort
+	}
+	return n // 0 means disabled
+}
+
+func runStatusServer(ctx context.Context, srv *proxy.ProxyServer, port int) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		enc.Encode(srv.Snapshot()) //nolint:errcheck
+	})
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ok")
+	})
+	hs := &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: mux}
+	context.AfterFunc(ctx, func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		hs.Shutdown(shutCtx) //nolint:errcheck
+	})
+	go func() {
+		if err := hs.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("status server: %v", err)
+		}
+	}()
+}
+
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	log.Println("lazy-tcp-proxy starting")
@@ -71,6 +114,15 @@ func main() {
 	idleTimeout := resolveIdleTimeout()
 	log.Printf("idle timeout: %s (set IDLE_TIMEOUT_SECS to override)", idleTimeout)
 	srv := proxy.NewServer(mgr, idleTimeout)
+
+	// Start the HTTP status server
+	statusPort := resolveStatusPort()
+	if statusPort == 0 {
+		log.Println("status server: disabled (STATUS_PORT=0)")
+	} else {
+		log.Printf("status server: listening on :%d (set STATUS_PORT=0 to disable)", statusPort)
+		runStatusServer(ctx, srv, statusPort)
+	}
 
 	// Initial discovery of all matching containers
 	log.Println("performing initial container discovery...")
