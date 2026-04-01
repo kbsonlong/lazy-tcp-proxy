@@ -25,3 +25,4 @@
 | REQ-021 | Cyan Source IP Address in Connection Logs         | Low    | Completed   | 2026-03-31 | [2026-03-31-cyan-source-ip.md](2026-03-31-cyan-source-ip.md) |
 | REQ-022 | Per-Service Allow-List and Block-List via Labels  | Medium | Completed   | 2026-03-31 | [2026-03-31-allow-block-lists.md](2026-03-31-allow-block-lists.md) |
 | REQ-023 | Discovered/Registered Containers Start as Idle    | High   | Completed   | 2026-04-01 | [2026-04-01-discovered-containers-start-idle.md](2026-04-01-discovered-containers-start-idle.md) |
+| REQ-024 | Handle Port Conflicts Between Containers          | High   | Completed   | 2026-04-01 | [2026-04-01-handle-port-conflicts.md](2026-04-01-handle-port-conflicts.md) |

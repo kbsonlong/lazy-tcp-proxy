@@ -60,6 +60,16 @@ func (s *ProxyServer) RegisterTarget(info docker.TargetInfo) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Pre-flight: reject the entire registration if any declared port is already
+	// held by a different container.
+	for _, m := range info.Ports {
+		if existing, ok := s.targets[m.ListenPort]; ok && existing.info.ContainerID != info.ContainerID {
+			log.Printf("\033[31mproxy: port conflict on port %d: already registered by \033[33m%s\033[31m, ignoring \033[33m%s\033[31m\033[0m",
+				m.ListenPort, existing.info.ContainerName, info.ContainerName)
+			return
+		}
+	}
+
 	for _, m := range info.Ports {
 		if existing, ok := s.targets[m.ListenPort]; ok {
 			existing.info = info
