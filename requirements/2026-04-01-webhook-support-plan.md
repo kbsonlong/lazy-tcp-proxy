@@ -18,12 +18,15 @@
 
 6. **Fire `container_stopped` webhook in `checkInactivity`** — immediately after `StopContainer` returns `nil`, dispatch `go fireWebhook(...)` with event `container_stopped`. Only fire if `ts.info.WebhookURL != ""` (read from any `ts` in the container's group, they share the same `TargetInfo`).
 
+7. **Update `README.md`** — document the `lazy-tcp-proxy.webhook-url` label; describe the two events, the JSON payload shape, and the fire-and-forget behaviour.
+
 ## File Change Summary
 
 | File | Action | Description |
 |------|--------|-------------|
 | `lazy-tcp-proxy/internal/docker/manager.go` | Modify | Add `WebhookURL string` to `TargetInfo`; parse `lazy-tcp-proxy.webhook-url` label in `containerToTargetInfo` |
 | `lazy-tcp-proxy/internal/proxy/server.go` | Modify | Add `webhookPayload` struct, `fireWebhook()` helper, `webhookClient` on `ProxyServer`; call from `handleConn` and `checkInactivity` |
+| `README.md` | Modify | Document `lazy-tcp-proxy.webhook-url` label, payload shape, and supported events |
 
 ## API Contracts
 

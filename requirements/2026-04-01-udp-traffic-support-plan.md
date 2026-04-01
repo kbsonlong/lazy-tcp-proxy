@@ -40,6 +40,8 @@
 
 13. **Extend startup log in `RegisterTarget`** — include UDP listen ports in the log line, e.g. `proxy: registered target myservice, TCP 8080->80, UDP 5353->53`.
 
+14. **Update `README.md`** — document the `lazy-tcp-proxy.udp-ports` label; explain the flow-tracking model and that the label is independent of `lazy-tcp-proxy.ports`; add a Docker Compose example showing combined TCP+UDP usage.
+
 ## File Change Summary
 
 | File | Action | Description |
@@ -47,6 +49,7 @@
 | `lazy-tcp-proxy/internal/docker/manager.go` | Modify | Add `UDPPorts []PortMapping` to `TargetInfo`; parse `lazy-tcp-proxy.udp-ports` label |
 | `lazy-tcp-proxy/internal/proxy/server.go` | Modify | Add `udpTargets` map; extend `RegisterTarget`, `RemoveTarget`, `ContainerStopped`, `checkInactivity` |
 | `lazy-tcp-proxy/internal/proxy/udp.go` | Create | `udpFlow`, `udpListenerState`, `udpReadLoop`, `udpUpstreamReadLoop`, `udpFlowSweeper` |
+| `README.md` | Modify | Document `lazy-tcp-proxy.udp-ports` label with example and flow-tracking explanation |
 
 ## API Contracts
 

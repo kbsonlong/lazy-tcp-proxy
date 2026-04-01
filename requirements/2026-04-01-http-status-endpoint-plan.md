@@ -19,12 +19,15 @@
 
 5. **Wire into `main()`** — after creating `srv`, call `resolveStatusPort()`; if not disabled, call `runStatusServer(ctx, srv, port)` and log `status endpoint: :<port>`.
 
+6. **Update `README.md`** — document the `STATUS_PORT` env var alongside existing env vars; add a section describing the `/status` and `/health` endpoints with example `curl` output.
+
 ## File Change Summary
 
 | File | Action | Description |
 |------|--------|-------------|
 | `lazy-tcp-proxy/internal/proxy/server.go` | Modify | Add `TargetSnapshot` struct and `Snapshot()` method |
 | `lazy-tcp-proxy/main.go` | Modify | Add `resolveStatusPort()`, `runStatusServer()`, wire into `main()` |
+| `README.md` | Modify | Document `STATUS_PORT` env var and `/status` + `/health` endpoints |
 
 ## API Contracts
 
