@@ -2,7 +2,7 @@
 
 **Requirement**: [2026-04-01-webhook-support.md](2026-04-01-webhook-support.md)
 **Date**: 2026-04-01
-**Status**: Draft
+**Status**: Implemented
 
 ## Implementation Steps
 
