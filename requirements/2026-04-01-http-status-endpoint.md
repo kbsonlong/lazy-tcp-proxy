@@ -18,7 +18,7 @@ Currently there is no way to inspect which containers the proxy is managing with
   - Whether the container is currently running
   - Number of active connections
   - Last active timestamp (RFC3339, or `null` if never active)
-- `GET /healthz` returns `200 OK` with body `ok` — a minimal liveness probe.
+- `GET /health` returns `200 OK` with body `ok` — a minimal liveness probe.
 - The HTTP server starts alongside the proxy and shuts down gracefully on the same context cancellation.
 - If `STATUS_PORT=0` the HTTP server is disabled entirely (opt-out).
 
@@ -39,7 +39,7 @@ Currently there is no way to inspect which containers the proxy is managing with
 
 - [ ] `GET /status` returns `200` with a valid JSON array when at least one target is registered.
 - [ ] `GET /status` returns `200` with an empty JSON array `[]` when no targets are registered.
-- [ ] `GET /healthz` always returns `200 OK` with body `ok`.
+- [ ] `GET /health` always returns `200 OK` with body `ok`.
 - [ ] The port is configurable via `STATUS_PORT` env var.
 - [ ] Setting `STATUS_PORT=0` disables the HTTP server (no port bound, no log line).
 - [ ] Startup log includes the status endpoint address (e.g. `status endpoint: :8080`).
