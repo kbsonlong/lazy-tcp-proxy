@@ -61,9 +61,17 @@ type webhookPayload struct {
 	Timestamp     string `json:"timestamp"`
 }
 
+// dockerManager is the subset of docker.Manager used by ProxyServer.
+// Defined as an interface to allow testing without a real Docker daemon.
+type dockerManager interface {
+	EnsureRunning(ctx context.Context, containerID string) error
+	StopContainer(ctx context.Context, containerID, containerName string) error
+	GetContainerIP(ctx context.Context, containerID, preferNetworkID string) (string, error)
+}
+
 // ProxyServer manages TCP listeners and proxies connections to Docker containers.
 type ProxyServer struct {
-	docker        *docker.Manager
+	docker        dockerManager
 	ctx           context.Context
 	mu            sync.RWMutex
 	targets       map[int]*targetState    // keyed by TCP listen port
