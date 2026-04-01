@@ -113,7 +113,9 @@ func main() {
 	// Create the proxy server
 	idleTimeout := resolveIdleTimeout()
 	log.Printf("idle timeout: %s (set IDLE_TIMEOUT_SECS to override)", idleTimeout)
-	srv := proxy.NewServer(mgr, idleTimeout)
+	tick := resolvePollInterval()
+	log.Printf("inactivity check interval: %s (set POLL_INTERVAL_SECS to override)", tick)
+	srv := proxy.NewServer(ctx, mgr, idleTimeout, tick)
 
 	// Start the HTTP status server
 	statusPort := resolveStatusPort()
@@ -136,8 +138,6 @@ func main() {
 	}()
 
 	// Periodically stop idle containers
-	tick := resolvePollInterval()
-	log.Printf("inactivity check interval: %s (set POLL_INTERVAL_SECS to override)", tick)
 	go func() {
 		srv.RunInactivityChecker(ctx, tick)
 	}()

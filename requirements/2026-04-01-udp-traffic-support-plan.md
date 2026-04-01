@@ -2,7 +2,7 @@
 
 **Requirement**: [2026-04-01-udp-traffic-support.md](2026-04-01-udp-traffic-support.md)
 **Date**: 2026-04-01
-**Status**: Draft
+**Status**: Implemented
 
 ## Implementation Steps
 

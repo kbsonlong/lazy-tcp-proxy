@@ -64,18 +64,24 @@ type webhookPayload struct {
 // ProxyServer manages TCP listeners and proxies connections to Docker containers.
 type ProxyServer struct {
 	docker        *docker.Manager
+	ctx           context.Context
 	mu            sync.RWMutex
-	targets       map[int]*targetState // keyed by listen port
+	targets       map[int]*targetState    // keyed by TCP listen port
+	udpTargets    map[int]*udpListenerState // keyed by UDP listen port
+	pollInterval  time.Duration
 	idleTimeout   time.Duration
 	webhookClient *http.Client
 }
 
 // NewServer creates a new ProxyServer backed by the given DockerManager.
-func NewServer(d *docker.Manager, idleTimeout time.Duration) *ProxyServer {
+func NewServer(ctx context.Context, d *docker.Manager, idleTimeout, pollInterval time.Duration) *ProxyServer {
 	return &ProxyServer{
 		docker:        d,
+		ctx:           ctx,
 		targets:       make(map[int]*targetState),
+		udpTargets:    make(map[int]*udpListenerState),
 		idleTimeout:   idleTimeout,
+		pollInterval:  pollInterval,
 		webhookClient: &http.Client{Timeout: 5 * time.Second},
 	}
 }
@@ -140,29 +146,37 @@ func (s *ProxyServer) RegisterTarget(info docker.TargetInfo) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Pre-flight: reject the entire registration if any declared port is already
-	// held by a different container.
+	// Pre-flight: reject the entire registration if any declared TCP or UDP port
+	// is already held by a different container.
 	for _, m := range info.Ports {
 		if existing, ok := s.targets[m.ListenPort]; ok && existing.info.ContainerID != info.ContainerID {
-			log.Printf("\033[31mproxy: port conflict on port %d: already registered by \033[33m%s\033[31m, ignoring \033[33m%s\033[31m\033[0m",
+			log.Printf("\033[31mproxy: TCP port conflict on port %d: already registered by \033[33m%s\033[31m, ignoring \033[33m%s\033[31m\033[0m",
+				m.ListenPort, existing.info.ContainerName, info.ContainerName)
+			return
+		}
+	}
+	for _, m := range info.UDPPorts {
+		if existing, ok := s.udpTargets[m.ListenPort]; ok && existing.info.ContainerID != info.ContainerID {
+			log.Printf("\033[31mproxy: UDP port conflict on port %d: already registered by \033[33m%s\033[31m, ignoring \033[33m%s\033[31m\033[0m",
 				m.ListenPort, existing.info.ContainerName, info.ContainerName)
 			return
 		}
 	}
 
+	// Register TCP listeners.
 	for _, m := range info.Ports {
 		if existing, ok := s.targets[m.ListenPort]; ok {
 			existing.info = info
 			existing.targetPort = m.TargetPort
 			existing.running = info.Running
 			existing.removed = false
-			log.Printf("proxy: updated target \033[33m%s\033[0m on port %d->%d", info.ContainerName, m.ListenPort, m.TargetPort)
+			log.Printf("proxy: updated TCP target \033[33m%s\033[0m on port %d->%d", info.ContainerName, m.ListenPort, m.TargetPort)
 			continue
 		}
 
 		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", m.ListenPort))
 		if err != nil {
-			log.Printf("proxy: failed to listen on port %d for \033[33m%s\033[0m: %v", m.ListenPort, info.ContainerName, err)
+			log.Printf("proxy: failed to listen on TCP port %d for \033[33m%s\033[0m: %v", m.ListenPort, info.ContainerName, err)
 			continue
 		}
 
@@ -170,12 +184,42 @@ func (s *ProxyServer) RegisterTarget(info docker.TargetInfo) {
 			info:       info,
 			targetPort: m.TargetPort,
 			listener:   ln,
-			lastActive: time.Time{},  // zero — immediately idle
+			lastActive: time.Time{}, // zero — immediately idle
 			running:    info.Running,
 		}
 		s.targets[m.ListenPort] = ts
-		log.Printf("proxy: registered target \033[33m%s\033[0m, listening on port %d->%d", info.ContainerName, m.ListenPort, m.TargetPort)
+		log.Printf("proxy: registered target \033[33m%s\033[0m, TCP %d->%d", info.ContainerName, m.ListenPort, m.TargetPort)
 		go s.acceptLoop(ts)
+	}
+
+	// Register UDP listeners.
+	for _, m := range info.UDPPorts {
+		if existing, ok := s.udpTargets[m.ListenPort]; ok {
+			existing.info = info
+			existing.targetPort = m.TargetPort
+			existing.running = info.Running
+			existing.removed = false
+			log.Printf("proxy: updated UDP target \033[33m%s\033[0m on port %d->%d", info.ContainerName, m.ListenPort, m.TargetPort)
+			continue
+		}
+
+		pc, err := net.ListenPacket("udp", fmt.Sprintf(":%d", m.ListenPort))
+		if err != nil {
+			log.Printf("proxy: failed to listen on UDP port %d for \033[33m%s\033[0m: %v", m.ListenPort, info.ContainerName, err)
+			continue
+		}
+		uls := &udpListenerState{
+			listenConn: pc.(*net.UDPConn),
+			targetPort: m.TargetPort,
+			info:       info,
+			running:    info.Running,
+			flows:      make(map[string]*udpFlow),
+			pending:    make(map[string]bool),
+		}
+		s.udpTargets[m.ListenPort] = uls
+		log.Printf("proxy: registered target \033[33m%s\033[0m, UDP %d->%d", info.ContainerName, m.ListenPort, m.TargetPort)
+		go s.udpReadLoop(uls)
+		go s.udpFlowSweeper(s.ctx, uls, s.pollInterval)
 	}
 }
 
@@ -186,10 +230,18 @@ func (s *ProxyServer) RemoveTarget(containerID string) {
 
 	for port, ts := range s.targets {
 		if ts.info.ContainerID == containerID {
-			log.Printf("proxy: removing target \033[33m%s\033[0m on port %d", ts.info.ContainerName, port)
+			log.Printf("proxy: removing target \033[33m%s\033[0m on TCP port %d", ts.info.ContainerName, port)
 			ts.removed = true
 			ts.listener.Close()
 			delete(s.targets, port)
+		}
+	}
+	for port, uls := range s.udpTargets {
+		if uls.info.ContainerID == containerID {
+			log.Printf("proxy: removing target \033[33m%s\033[0m on UDP port %d", uls.info.ContainerName, port)
+			uls.removed = true
+			uls.listenConn.Close()
+			delete(s.udpTargets, port)
 		}
 	}
 }
@@ -202,6 +254,11 @@ func (s *ProxyServer) ContainerStopped(containerID string) {
 	for _, ts := range s.targets {
 		if ts.info.ContainerID == containerID {
 			ts.running = false
+		}
+	}
+	for _, uls := range s.udpTargets {
+		if uls.info.ContainerID == containerID {
+			uls.running = false
 		}
 	}
 }
@@ -223,22 +280,28 @@ func (s *ProxyServer) RunInactivityChecker(ctx context.Context, tick time.Durati
 
 func (s *ProxyServer) checkInactivity(ctx context.Context) {
 	s.mu.RLock()
-	snapshot := make([]*targetState, 0, len(s.targets))
+	tcpSnap := make([]*targetState, 0, len(s.targets))
 	for _, ts := range s.targets {
-		snapshot = append(snapshot, ts)
+		tcpSnap = append(tcpSnap, ts)
+	}
+	udpSnap := make([]*udpListenerState, 0, len(s.udpTargets))
+	for _, uls := range s.udpTargets {
+		udpSnap = append(udpSnap, uls)
 	}
 	s.mu.RUnlock()
 
-	// Group by container; a container is eligible only when ALL its mappings are idle.
+	// Group by container; eligible only when ALL TCP and UDP mappings are idle.
 	type entry struct {
 		containerID string
 		name        string
 		webhookURL  string
 		allIdle     bool
-		states      []*targetState
+		tcpStates   []*targetState
+		udpStates   []*udpListenerState
 	}
 	byContainer := map[string]*entry{}
-	for _, ts := range snapshot {
+
+	for _, ts := range tcpSnap {
 		if ts.removed {
 			continue
 		}
@@ -247,20 +310,41 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 			e = &entry{containerID: ts.info.ContainerID, name: ts.info.ContainerName, webhookURL: ts.info.WebhookURL, allIdle: true}
 			byContainer[ts.info.ContainerID] = e
 		}
-		e.states = append(e.states, ts)
+		e.tcpStates = append(e.tcpStates, ts)
 		if !ts.running || ts.activeConns.Load() > 0 || time.Since(ts.lastActive) < s.idleTimeout {
 			e.allIdle = false
 		}
 	}
+
+	for _, uls := range udpSnap {
+		if uls.removed {
+			continue
+		}
+		e, ok := byContainer[uls.info.ContainerID]
+		if !ok {
+			e = &entry{containerID: uls.info.ContainerID, name: uls.info.ContainerName, webhookURL: uls.info.WebhookURL, allIdle: true}
+			byContainer[uls.info.ContainerID] = e
+		}
+		e.udpStates = append(e.udpStates, uls)
+		uls.mu.Lock()
+		activeFlows := len(uls.flows) + len(uls.pending)
+		lastActive := uls.lastActive
+		uls.mu.Unlock()
+		if !uls.running || activeFlows > 0 || time.Since(lastActive) < s.idleTimeout {
+			e.allIdle = false
+		}
+	}
+
 	for _, e := range byContainer {
 		if e.allIdle {
 			if err := s.docker.StopContainer(ctx, e.containerID, e.name); err != nil {
 				log.Printf("proxy: inactivity: error stopping \033[33m%s\033[0m: %v", e.name, err)
 			} else {
-				// Mark as stopped immediately; the "die" event will also call
-				// ContainerStopped, but this covers the window before it arrives.
-				for _, ts := range e.states {
+				for _, ts := range e.tcpStates {
 					ts.running = false
+				}
+				for _, uls := range e.udpStates {
+					uls.running = false
 				}
 				if e.webhookURL != "" {
 					go s.fireWebhook(e.webhookURL, "container_stopped", e.containerID, e.name)

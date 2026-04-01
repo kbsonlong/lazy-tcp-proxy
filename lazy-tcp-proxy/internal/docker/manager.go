@@ -32,11 +32,33 @@ type TargetInfo struct {
 	ContainerID   string
 	ContainerName string
 	Ports         []PortMapping
+	UDPPorts      []PortMapping
 	NetworkIDs    []string
 	AllowList     []net.IPNet // empty = no restriction (all IPs allowed)
 	BlockList     []net.IPNet // empty = no restriction (no IPs blocked)
 	Running       bool        // true if the container was running at the time of inspection
 	WebhookURL    string      // empty = no webhook
+}
+
+// parsePortMappings tokenises a comma-separated "<listen>:<target>" string into
+// a []PortMapping. Invalid tokens are skipped with a warning log.
+func parsePortMappings(label, s string) []PortMapping {
+	var out []PortMapping
+	for _, token := range strings.Split(s, ",") {
+		parts := strings.SplitN(strings.TrimSpace(token), ":", 2)
+		if len(parts) != 2 {
+			log.Printf("docker: label %s: ignoring invalid token %q: expected <listen>:<target>", label, token)
+			continue
+		}
+		lp, err1 := strconv.Atoi(strings.TrimSpace(parts[0]))
+		tp, err2 := strconv.Atoi(strings.TrimSpace(parts[1]))
+		if err1 != nil || err2 != nil {
+			log.Printf("docker: label %s: ignoring invalid token %q: ports must be integers", label, token)
+			continue
+		}
+		out = append(out, PortMapping{ListenPort: lp, TargetPort: tp})
+	}
+	return out
 }
 
 // parseIPList parses a comma-delimited string of IPs and/or CIDRs into a
@@ -209,21 +231,14 @@ func (m *Manager) containerToTargetInfo(ctx context.Context, containerID string)
 	if !ok {
 		return TargetInfo{}, fmt.Errorf("missing label lazy-tcp-proxy.ports")
 	}
-	var ports []PortMapping
-	for _, token := range strings.Split(portsStr, ",") {
-		parts := strings.SplitN(strings.TrimSpace(token), ":", 2)
-		if len(parts) != 2 {
-			return TargetInfo{}, fmt.Errorf("invalid port mapping %q: expected <listen>:<target>", token)
-		}
-		lp, err := strconv.Atoi(strings.TrimSpace(parts[0]))
-		if err != nil {
-			return TargetInfo{}, fmt.Errorf("invalid listen port in %q: %w", token, err)
-		}
-		tp, err := strconv.Atoi(strings.TrimSpace(parts[1]))
-		if err != nil {
-			return TargetInfo{}, fmt.Errorf("invalid target port in %q: %w", token, err)
-		}
-		ports = append(ports, PortMapping{ListenPort: lp, TargetPort: tp})
+	ports := parsePortMappings("lazy-tcp-proxy.ports", portsStr)
+	if len(ports) == 0 {
+		return TargetInfo{}, fmt.Errorf("label lazy-tcp-proxy.ports contains no valid port mappings")
+	}
+
+	var udpPorts []PortMapping
+	if v, ok := inspect.Config.Labels["lazy-tcp-proxy.udp-ports"]; ok && v != "" {
+		udpPorts = parsePortMappings("lazy-tcp-proxy.udp-ports", v)
 	}
 
 	name := strings.TrimPrefix(inspect.Name, "/")
@@ -256,6 +271,7 @@ func (m *Manager) containerToTargetInfo(ctx context.Context, containerID string)
 		ContainerID:   containerID,
 		ContainerName: name,
 		Ports:         ports,
+		UDPPorts:      udpPorts,
 		NetworkIDs:    networkIDs,
 		AllowList:     allowList,
 		BlockList:     blockList,
