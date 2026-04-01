@@ -1,35 +1,38 @@
 
 # lazy-tcp-proxy
 
+# Overview
+
+## What:
+
 **On-demand TCP proxy for Docker containers.**
 
-> "Scale to zero!" - Nick G.
-
-> "This is something that should really be built into Docker!" - Tom H.
+## Introduction:
 
 `lazy-tcp-proxy` allows you to run many Dockerized services on a single host, but only start containers when a connection arrives. It stops containers after a configurable idle timeout, saving resources while providing seamless access.
 
----
 
-## Features
+### Why:
 
-- **Automatic TCP proxying:** Listens on host ports and proxies to containers, starting them on demand.
-- **Label-based configuration:** Opt-in containers using Docker labels—no static config files.
-- **Multi-port support:** Proxy multiple ports per container using `lazy-tcp-proxy.ports` label.
-- **Idle shutdown:** Containers are stopped after a configurable period of inactivity.
-- **Dynamic discovery:** Watches Docker events for new/removed containers and updates proxy targets live.
-- **Network auto-join:** Proxy joins Docker networks as needed to reach containers by internal IP.
-- **Graceful shutdown:** Leaves all joined networks on SIGINT/SIGTERM.
-- **Per-service IP filtering:** Optional allow-list and block-list per container via labels; supports plain IPs and CIDRs.
-- **Structured, colorized logs:** Container names in yellow, network names in green, source addresses in cyan for easy scanning.
+To save compute resources (CPU, RAM) on a single host by keeping containers stopped until they're actually needed, making it practical to run many low-traffic services without paying the cost of having them all running simultaneously.
+
+### Feedback:
+
+> "Finally, scale to zero!" - Nick G.
+
+> "This is something that should really be built into Docker!" - Tom H.
 
 ---
 
 ## Feature Request
 
-I believe this should be core functionality in the docker engine.
+This should be core functionality in the docker engine. As such, I've raised a Feature Request to add this behaviour - https://github.com/docker/roadmap/issues/899
 
-I've raised a Feature Request to add this behaviour - https://github.com/docker/roadmap/issues/899
+---
+
+## Questions and Answers
+
+[Can be found here.](QANDA.md)
 
 ---
 
@@ -46,15 +49,15 @@ docker run -d \
 	mountainpass/lazy-tcp-proxy
 ```
 
-Or use the provided [`docker-compose.yml`](docker-compose.yml).
-
 Then add labels to new or existing containers (see below).
+
+Or start with the example project - [`example/docker-compose.yml`](example/docker-compose.yml).
 
 ---
 
 ## Container Label Configuration
 
-Add these labels to any container you want proxied:
+Add these labels to any container you want proxied/managed:
 
 | Label | Required | Description |
 |-------|----------|-------------|
@@ -77,6 +80,31 @@ labels:
 
 ---
 
+## Environment Variables
+
+| Variable            | Description                                                        | Default                   |
+|---------------------|--------------------------------------------------------------------|---------------------------|
+| `IDLE_TIMEOUT_SECS` | How long (in seconds) a container must be idle before being stopped| 120                       |
+| `POLL_INTERVAL_SECS`| How often (in seconds) to check for idle containers                | 15                        |
+| `DOCKER_SOCK`       | Path to Docker socket                                              | `/var/run/docker.sock`    |
+
+All are optional; defaults are safe for most setups.
+
+---
+
+## Features
+
+- **Automatic TCP proxying:** Listens on host ports and proxies to containers, starting them on demand.
+- **Label-based configuration:** Opt-in containers using Docker labels—no static config files.
+- **Multi-port support:** Proxy multiple ports per container using `lazy-tcp-proxy.ports` label.
+- **Idle shutdown:** Containers are stopped after a configurable period of inactivity.
+- **Dynamic discovery:** Watches Docker events for new/removed containers and updates proxy targets live.
+- **Network auto-join:** Proxy joins Docker networks as needed to reach containers by internal IP.
+- **Graceful shutdown:** Leaves all joined networks on SIGINT/SIGTERM.
+- **Per-service IP filtering:** Optional allow-list and block-list per container via labels; supports plain IPs and CIDRs.
+- **Structured, colorized logs:** Container names in yellow, network names in green, source addresses in cyan for easy scanning.
+
+---
 
 ## Architecture
 
@@ -116,19 +144,6 @@ docker buildx build \
 
 ---
 
-
-## Environment Variables
-
-| Variable            | Description                                                        | Default                   |
-|---------------------|--------------------------------------------------------------------|---------------------------|
-| `IDLE_TIMEOUT_SECS` | How long (in seconds) a container must be idle before being stopped| 120                       |
-| `POLL_INTERVAL_SECS`| How often (in seconds) to check for idle containers                | 15                        |
-| `DOCKER_SOCK`       | Path to Docker socket                                              | `/var/run/docker.sock`    |
-
-All are optional; defaults are safe for most setups.
-
----
-
 ## Required resources
 
 The container is designed to run with an extremely low footprint.
@@ -146,12 +161,6 @@ cbc5f775a793   lazy-tcp-proxy     0.00%     4.238MiB / 19.52GiB   0.02%     1.51
 - **Network names** are shown in green: `\033[32m<name>\033[0m`
 - All key events (startup, discovery, container start/stop, network join/leave, proxy activity) are logged with clear, structured messages.
 - Rejection reasons for misconfigured containers are logged on every start event.
-
----
-
-## Graceful Shutdown
-
-On SIGINT or SIGTERM, the proxy disconnects itself from all joined Docker networks before exiting. All shutdown steps are logged.
 
 ---
 
