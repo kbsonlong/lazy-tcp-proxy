@@ -49,7 +49,8 @@ Add these labels to any container you want proxied/managed:
 | Label | Required | Description |
 |-------|----------|-------------|
 | `lazy-tcp-proxy.enabled` | Yes | Must be `true` to opt the container in |
-| `lazy-tcp-proxy.ports` | Yes | Comma-separated `<listen>:<target>` port pairs |
+| `lazy-tcp-proxy.ports` | Yes | Comma-separated `<listen>:<target>` TCP port pairs |
+| `lazy-tcp-proxy.udp-ports` | No | Comma-separated `<listen>:<target>` UDP port pairs (see [UDP Support](#udp-support)) |
 | `lazy-tcp-proxy.allow-list` | No | Comma-separated IPs/CIDRs. If set, only matching source addresses are forwarded; all others are silently dropped |
 | `lazy-tcp-proxy.block-list` | No | Comma-separated IPs/CIDRs. If set, matching source addresses are silently dropped; all others are forwarded |
 | `lazy-tcp-proxy.webhook-url` | No | HTTP(S) URL to POST lifecycle events to (see [Webhooks](#webhooks)) |
@@ -124,6 +125,30 @@ Minimal liveness probe — always returns `200 ok` while the proxy is running.
 curl http://localhost:8080/health
 # ok
 ```
+
+---
+
+## UDP Support
+
+The proxy can forward UDP datagrams in addition to TCP connections. Add the `lazy-tcp-proxy.udp-ports` label independently of (or alongside) `lazy-tcp-proxy.ports`.
+
+```yaml
+labels:
+  - "lazy-tcp-proxy.enabled=true"
+  - "lazy-tcp-proxy.ports=9000:80"        # TCP
+  - "lazy-tcp-proxy.udp-ports=5353:53"    # UDP
+```
+
+**How it works:**
+
+- The proxy binds a UDP socket on each declared listen port.
+- The first datagram from a new client triggers `EnsureRunning` on the container (same as TCP).
+- Each client is tracked as an independent *flow* (keyed by source IP + port). Responses from the container are routed back to the correct client.
+- Flows idle for longer than `IDLE_TIMEOUT_SECS` are cleaned up automatically.
+- The container is only stopped when **all** TCP connections **and** UDP flows are idle past the timeout.
+- Allow-list and block-list labels apply to UDP traffic — datagrams from blocked addresses are silently dropped.
+
+> **Note:** UDP is connectionless. The proxy uses one upstream socket per client flow, which suits the low-concurrency, lazy-start use case this proxy is designed for.
 
 ---
 
