@@ -74,6 +74,9 @@ func runStatusServer(ctx context.Context, srv *proxy.ProxyServer, port int) {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, "ok")
 	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/status", http.StatusMovedPermanently)
+	})
 	hs := &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: mux}
 	context.AfterFunc(ctx, func() {
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
