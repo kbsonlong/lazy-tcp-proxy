@@ -1,0 +1,36 @@
+version: 2
+updates:
+  # Go modules (lazy-tcp-proxy/go.mod)
+  - package-ecosystem: "gomod"
+    directory: "/lazy-tcp-proxy"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "go"
+
+  # Docker images in docker-compose files
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "docker"
+
+  - package-ecosystem: "docker"
+    directory: "/example"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "docker"
+
+  # GitHub Actions (once workflows are added)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "github-actions"
