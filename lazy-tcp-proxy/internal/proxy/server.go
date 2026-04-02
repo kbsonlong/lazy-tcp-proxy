@@ -489,7 +489,7 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 			continue
 		}
 
-		addr := fmt.Sprintf("%s:%d", ip, ts.targetPort)
+		addr := net.JoinHostPort(ip, fmt.Sprintf("%d", ts.targetPort))
 		upstream, lastErr = net.DialTimeout("tcp", addr, dialInterval)
 		if lastErr == nil {
 			break
