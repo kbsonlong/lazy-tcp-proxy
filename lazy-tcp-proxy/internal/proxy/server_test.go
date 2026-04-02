@@ -145,18 +145,27 @@ func TestSnapshot_Fields(t *testing.T) {
 	if e.LastActive == nil {
 		t.Error("LastActive: expected non-nil")
 	}
+	if e.LastActiveRelative == "" {
+		t.Error("LastActiveRelative: expected non-empty string")
+	}
 }
 
-func TestSnapshot_NeverActiveMarshalsAsNil(t *testing.T) {
+func TestSnapshot_NeverActiveFallsBackToStartTime(t *testing.T) {
 	s := newTestServer()
 	s.targets[9000] = &targetState{
 		info:       docker.TargetInfo{ContainerID: "abc123"},
 		targetPort: 80,
-		lastActive: time.Time{}, // zero value
+		lastActive: time.Time{}, // zero — never active
 	}
 	snap := s.Snapshot()
-	if snap[0].LastActive != nil {
-		t.Error("LastActive should be nil for zero time")
+	if snap[0].LastActive == nil {
+		t.Error("LastActive should not be nil; expected fallback to startTime")
+	}
+	if !snap[0].LastActive.Equal(s.startTime) {
+		t.Errorf("LastActive should equal startTime %v, got %v", s.startTime, snap[0].LastActive)
+	}
+	if snap[0].LastActiveRelative == "" {
+		t.Error("LastActiveRelative should be non-empty")
 	}
 }
 
@@ -458,6 +467,7 @@ func newTestServer() *ProxyServer {
 		udpTargets:   make(map[int]*udpListenerState),
 		idleTimeout:  5 * time.Minute,
 		pollInterval: 15 * time.Second,
+		startTime:    time.Now().Add(-1 * time.Hour),
 	}
 }
 
@@ -467,6 +477,38 @@ func newTestServerWithStopper(stopFn func(id string)) *ProxyServer {
 	s := newTestServer()
 	s.docker = &mockDockerManager{stopFunc: stopFn}
 	return s
+}
+
+// ---- relativeTime ----
+
+func TestRelativeTime(t *testing.T) {
+	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name     string
+		ago      time.Duration
+		expected string
+	}{
+		{"seconds", 10 * time.Second, "10 seconds ago"},
+		{"boundary_minute", 60 * time.Second, "1 minutes ago"},
+		{"minutes", 4 * time.Minute, "4 minutes ago"},
+		{"boundary_hour", 60 * time.Minute, "1 hours ago"},
+		{"hours", 8 * time.Hour, "8 hours ago"},
+		{"boundary_day", 24 * time.Hour, "1 days ago"},
+		{"days", 3 * 24 * time.Hour, "3 days ago"},
+		{"boundary_month", 30 * 24 * time.Hour, "1 months ago"},
+		{"months", 45 * 24 * time.Hour, "1 months ago"},
+		{"boundary_year", 365 * 24 * time.Hour, "1 years ago"},
+		{"years", 400 * 24 * time.Hour, "1 years ago"},
+		{"multi_year", 800 * 24 * time.Hour, "2 years ago"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := relativeTime(now.Add(-tc.ago), now)
+			if got != tc.expected {
+				t.Errorf("relativeTime(%v ago): got %q, want %q", tc.ago, got, tc.expected)
+			}
+		})
+	}
 }
 
 // mustParseNets is a test helper that parses CIDRs/IPs into []net.IPNet.

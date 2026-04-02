@@ -88,6 +88,7 @@ func runStatusServer(ctx context.Context, srv *proxy.ProxyServer, port int) {
 }
 
 func main() {
+	startTime := time.Now()
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	log.Println("lazy-tcp-proxy starting")
 
@@ -115,7 +116,7 @@ func main() {
 	log.Printf("idle timeout: %s (set IDLE_TIMEOUT_SECS to override)", idleTimeout)
 	tick := resolvePollInterval()
 	log.Printf("inactivity check interval: %s (set POLL_INTERVAL_SECS to override)", tick)
-	srv := proxy.NewServer(ctx, mgr, idleTimeout, tick)
+	srv := proxy.NewServer(ctx, mgr, startTime, idleTimeout, tick)
 
 	// Start the HTTP status server
 	statusPort := resolveStatusPort()
