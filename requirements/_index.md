@@ -31,3 +31,4 @@
 | REQ-027 | UDP Traffic Support                               | Medium | Completed   | 2026-04-01 | [2026-04-01-udp-traffic-support.md](2026-04-01-udp-traffic-support.md) |
 | REQ-028 | Integration Tests (TCP and UDP Proxy)             | Medium | Completed   | 2026-04-01 | [2026-04-01-integration-tests.md](2026-04-01-integration-tests.md) |
 | REQ-029 | Root Redirect to /status                          | Low    | Completed   | 2026-04-02 | [2026-04-02-root-redirect-to-status.md](2026-04-02-root-redirect-to-status.md) |
+| REQ-030 | Last Active Default & Relative Time Field         | Medium | Completed   | 2026-04-02 | [2026-04-02-last-active-relative.md](2026-04-02-last-active-relative.md) |

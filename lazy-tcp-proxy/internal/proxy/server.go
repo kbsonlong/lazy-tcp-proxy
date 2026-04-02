@@ -26,13 +26,34 @@ const (
 // TargetSnapshot is a point-in-time copy of a single port mapping's state,
 // safe to read without holding any lock.
 type TargetSnapshot struct {
-	ContainerID   string     `json:"container_id"`
-	ContainerName string     `json:"container_name"`
-	ListenPort    int        `json:"listen_port"`
-	TargetPort    int        `json:"target_port"`
-	Running       bool       `json:"running"`
-	ActiveConns   int32      `json:"active_conns"`
-	LastActive    *time.Time `json:"last_active"`
+	ContainerID        string     `json:"container_id"`
+	ContainerName      string     `json:"container_name"`
+	ListenPort         int        `json:"listen_port"`
+	TargetPort         int        `json:"target_port"`
+	Running            bool       `json:"running"`
+	ActiveConns        int32      `json:"active_conns"`
+	LastActive         *time.Time `json:"last_active"`
+	LastActiveRelative string     `json:"last_active_relative"`
+}
+
+// relativeTime returns a human-readable string describing how long ago t was,
+// using only the single largest significant unit.
+func relativeTime(t, now time.Time) string {
+	d := now.Sub(t)
+	switch {
+	case d >= 365*24*time.Hour:
+		return fmt.Sprintf("%d years ago", int(d.Hours()/24/365))
+	case d >= 30*24*time.Hour:
+		return fmt.Sprintf("%d months ago", int(d.Hours()/24/30))
+	case d >= 24*time.Hour:
+		return fmt.Sprintf("%d days ago", int(d.Hours()/24))
+	case d >= time.Hour:
+		return fmt.Sprintf("%d hours ago", int(d.Hours()))
+	case d >= time.Minute:
+		return fmt.Sprintf("%d minutes ago", int(d.Minutes()))
+	default:
+		return fmt.Sprintf("%d seconds ago", int(d.Seconds()))
+	}
 }
 
 var copyBufPool = sync.Pool{
@@ -74,15 +95,16 @@ type ProxyServer struct {
 	docker        dockerManager
 	ctx           context.Context
 	mu            sync.RWMutex
-	targets       map[int]*targetState    // keyed by TCP listen port
+	targets       map[int]*targetState     // keyed by TCP listen port
 	udpTargets    map[int]*udpListenerState // keyed by UDP listen port
 	pollInterval  time.Duration
 	idleTimeout   time.Duration
+	startTime     time.Time
 	webhookClient *http.Client
 }
 
 // NewServer creates a new ProxyServer backed by the given DockerManager.
-func NewServer(ctx context.Context, d *docker.Manager, idleTimeout, pollInterval time.Duration) *ProxyServer {
+func NewServer(ctx context.Context, d *docker.Manager, startTime time.Time, idleTimeout, pollInterval time.Duration) *ProxyServer {
 	return &ProxyServer{
 		docker:        d,
 		ctx:           ctx,
@@ -90,6 +112,7 @@ func NewServer(ctx context.Context, d *docker.Manager, idleTimeout, pollInterval
 		udpTargets:    make(map[int]*udpListenerState),
 		idleTimeout:   idleTimeout,
 		pollInterval:  pollInterval,
+		startTime:     startTime,
 		webhookClient: &http.Client{Timeout: 5 * time.Second},
 	}
 }
@@ -98,25 +121,27 @@ func NewServer(ctx context.Context, d *docker.Manager, idleTimeout, pollInterval
 func (s *ProxyServer) Snapshot() []TargetSnapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	now := time.Now()
 	out := make([]TargetSnapshot, 0, len(s.targets))
 	for listenPort, ts := range s.targets {
-		var la *time.Time
-		if !ts.lastActive.IsZero() {
-			t := ts.lastActive
-			la = &t
+		effective := ts.lastActive
+		if effective.IsZero() {
+			effective = s.startTime
 		}
+		t := effective
 		id := ts.info.ContainerID
 		if len(id) > 12 {
 			id = id[:12]
 		}
 		out = append(out, TargetSnapshot{
-			ContainerID:   id,
-			ContainerName: ts.info.ContainerName,
-			ListenPort:    listenPort,
-			TargetPort:    ts.targetPort,
-			Running:       ts.running,
-			ActiveConns:   ts.activeConns.Load(),
-			LastActive:    la,
+			ContainerID:        id,
+			ContainerName:      ts.info.ContainerName,
+			ListenPort:         listenPort,
+			TargetPort:         ts.targetPort,
+			Running:            ts.running,
+			ActiveConns:        ts.activeConns.Load(),
+			LastActive:         &t,
+			LastActiveRelative: relativeTime(effective, now),
 		})
 	}
 	return out
