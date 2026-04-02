@@ -136,7 +136,7 @@ func (m *Manager) SelfContainerID() string {
 	// Try /proc/self/cgroup first (docker sets long hex IDs here)
 	f, err := os.Open("/proc/self/cgroup")
 	if err == nil {
-		defer f.Close()
+		defer f.Close() //nolint:errcheck
 		scanner := bufio.NewScanner(f)
 		for scanner.Scan() {
 			line := scanner.Text()

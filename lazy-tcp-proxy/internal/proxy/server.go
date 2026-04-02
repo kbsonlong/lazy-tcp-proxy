@@ -166,7 +166,7 @@ func (s *ProxyServer) fireWebhook(webhookURL, event, containerID, containerName 
 		log.Printf("proxy: webhook: POST %s event=%s error: %v", webhookURL, event, err)
 		return
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		log.Printf("proxy: webhook: POST %s event=%s non-2xx response: %d", webhookURL, event, resp.StatusCode)
 		return
@@ -265,7 +265,9 @@ func (s *ProxyServer) RemoveTarget(containerID string) {
 		if ts.info.ContainerID == containerID {
 			log.Printf("proxy: removing target \033[33m%s\033[0m on TCP port %d", ts.info.ContainerName, port)
 			ts.removed = true
-			ts.listener.Close()
+			if err := ts.listener.Close(); err != nil {
+				log.Printf("proxy: error closing TCP listener on port %d: %v", port, err)
+			}
 			delete(s.targets, port)
 		}
 	}
@@ -273,7 +275,9 @@ func (s *ProxyServer) RemoveTarget(containerID string) {
 		if uls.info.ContainerID == containerID {
 			log.Printf("proxy: removing target \033[33m%s\033[0m on UDP port %d", uls.info.ContainerName, port)
 			uls.removed = true
-			uls.listenConn.Close()
+			if err := uls.listenConn.Close(); err != nil {
+				log.Printf("proxy: error closing UDP listener on port %d: %v", port, err)
+			}
 			delete(s.udpTargets, port)
 		}
 	}
@@ -440,7 +444,7 @@ func (s *ProxyServer) acceptLoop(ts *targetState) {
 
 // handleConn manages a single inbound connection to a target container.
 func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 
 	// Increment activeConns immediately so the inactivity checker does not stop
 	// the container while we are starting it or waiting for the upstream dial.

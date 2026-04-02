@@ -22,7 +22,7 @@ func startTCPEchoServer(t *testing.T) int {
 	if err != nil {
 		t.Fatalf("startTCPEchoServer: %v", err)
 	}
-	t.Cleanup(func() { ln.Close() })
+	t.Cleanup(func() { ln.Close() }) //nolint:errcheck
 	go func() {
 		for {
 			conn, err := ln.Accept()
@@ -30,7 +30,7 @@ func startTCPEchoServer(t *testing.T) int {
 				return
 			}
 			go func() {
-				defer conn.Close()
+				defer conn.Close() //nolint:errcheck
 				io.Copy(conn, conn) //nolint:errcheck
 			}()
 		}
@@ -47,7 +47,7 @@ func startUDPEchoServer(t *testing.T) int {
 	if err != nil {
 		t.Fatalf("startUDPEchoServer: %v", err)
 	}
-	t.Cleanup(func() { pc.Close() })
+	t.Cleanup(func() { pc.Close() }) //nolint:errcheck
 	go func() {
 		buf := make([]byte, 65535)
 		for {
@@ -113,7 +113,7 @@ func TestTCPProxy_ForwardsData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial proxy: %v", err)
 	}
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 
 	msg := []byte("hello")
 	if _, err := conn.Write(msg); err != nil {
@@ -155,7 +155,7 @@ func TestUDPProxy_ForwardsData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial proxy UDP: %v", err)
 	}
-	defer clientConn.Close()
+	defer clientConn.Close() //nolint:errcheck
 
 	msg := []byte("hello-udp")
 	if _, err := clientConn.Write(msg); err != nil {
