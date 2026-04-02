@@ -1,0 +1,40 @@
+name: Go CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: lazy-tcp-proxy/go.mod
+          cache-dependency-path: lazy-tcp-proxy/go.sum
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          working-directory: lazy-tcp-proxy
+
+  test:
+    name: Test & Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: lazy-tcp-proxy/go.mod
+          cache-dependency-path: lazy-tcp-proxy/go.sum
+      - name: vet
+        working-directory: lazy-tcp-proxy
+        run: go vet ./...
+      - name: build
+        working-directory: lazy-tcp-proxy
+        run: go build ./...
+      - name: test
+        working-directory: lazy-tcp-proxy
+        run: go test -race -count=1 ./...
