@@ -3,7 +3,9 @@
 
 # Overview
 
-**On-demand TCP proxy for Docker containers.**
+**On-demand TCP+UDP proxy for Docker containers.**
+
+> 🥳 Now with UDP support! 🎉
 
 ## Introduction:
 
