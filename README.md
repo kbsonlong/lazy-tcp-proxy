@@ -13,7 +13,7 @@ Supported architectures: `linux/amd64`, `linux/arm64`, `linux/arm/v7`, `linux/ar
 
 ### Why:
 
-To save compute resources (CPU, RAM) on a single host by keeping containers stopped until they're actually needed, making it practical to run many low-traffic services without paying the cost of having them all running simultaneously.
+To save compute resources (CPU, RAM, Electricity) on a single host by keeping containers stopped until they're actually needed, making it practical to run many low-traffic services without paying the cost of having them all running simultaneously.
 
 ### Feedback:
 
@@ -30,7 +30,8 @@ docker run -d \
 	-v /var/run/docker.sock:/var/run/docker.sock \
     -e IDLE_TIMEOUT_SECS=30 \
     -e POLL_INTERVAL_SECS=5 \
-	-p "9000-9099:9000-9099" \
+    -p "8080:8080" \
+    -p "9000-9099:9000-9099" \
     --restart=always \
     --name lazy-tcp-proxy \
 	mountainpass/lazy-tcp-proxy
@@ -89,6 +90,8 @@ The proxy exposes a lightweight HTTP server for operational visibility.
 ### `GET /status`
 
 Returns a JSON array of all currently managed containers and their state.
+
+Additionally, the `last_active` is good way to tell if a service hasn't been used in a while - and can possibly be removed.
 
 ```sh
 curl http://localhost:8080/status
