@@ -180,7 +180,7 @@ func TestRegisterTarget_TCPPortConflict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("could not open test listener: %v", err)
 	}
-	defer ln.Close()
+	defer ln.Close() //nolint:errcheck
 	listenPort := ln.Addr().(*net.TCPAddr).Port
 
 	s.targets[listenPort] = &targetState{
@@ -209,7 +209,7 @@ func TestRegisterTarget_UDPPortConflict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("could not open test UDP listener: %v", err)
 	}
-	defer pc.Close()
+	defer pc.Close() //nolint:errcheck
 	listenPort := pc.LocalAddr().(*net.UDPAddr).Port
 
 	s.udpTargets[listenPort] = &udpListenerState{
@@ -382,7 +382,7 @@ func TestCheckInactivity_UDPIdleWithNoTCPStops(t *testing.T) {
 
 	// UDP-only container, idle.
 	pc, _ := net.ListenPacket("udp", ":0")
-	defer pc.Close()
+	defer pc.Close() //nolint:errcheck
 	s.udpTargets[5353] = &udpListenerState{
 		listenConn: pc.(*net.UDPConn),
 		info:       docker.TargetInfo{ContainerID: "ctr-udp", ContainerName: "dns"},
@@ -420,7 +420,7 @@ func TestCheckInactivity_TCPIdleButUDPActiveDoesNotStop(t *testing.T) {
 
 	// UDP: has an active flow
 	pc, _ := net.ListenPacket("udp", ":0")
-	defer pc.Close()
+	defer pc.Close() //nolint:errcheck
 	uls := &udpListenerState{
 		listenConn: pc.(*net.UDPConn),
 		info:       info,

@@ -72,7 +72,7 @@ func runStatusServer(ctx context.Context, srv *proxy.ProxyServer, port int) {
 	})
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "ok")
+		fmt.Fprint(w, "ok") //nolint:errcheck
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/status", http.StatusMovedPermanently)

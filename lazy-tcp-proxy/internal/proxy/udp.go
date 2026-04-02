@@ -186,7 +186,9 @@ func (s *ProxyServer) udpFlowSweeper(ctx context.Context, uls *udpListenerState,
 				if now.Sub(flow.lastActive) > s.idleTimeout {
 					log.Printf("proxy: udp: flow \033[36m%s\033[0m -> \033[33m%s\033[0m expired",
 						flow.clientAddr, uls.info.ContainerName)
-					flow.upstreamConn.Close()
+					if err := flow.upstreamConn.Close(); err != nil {
+						log.Printf("proxy: udp: error closing upstream conn for flow %s: %v", flow.clientAddr, err)
+					}
 					delete(uls.flows, key)
 				}
 			}
