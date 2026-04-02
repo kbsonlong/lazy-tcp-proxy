@@ -431,10 +431,6 @@ func (s *ProxyServer) acceptLoop(ts *targetState) {
 			if ts.removed {
 				return
 			}
-			// Check if listener was closed
-			select {
-			default:
-			}
 			log.Printf("proxy: accept error on port %d: %v", ts.targetPort, err)
 			return
 		}
@@ -506,7 +502,7 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 		log.Printf("proxy: exhausted retries connecting to \033[33m%s\033[0m: %v", ts.info.ContainerName, lastErr)
 		return
 	}
-	defer upstream.Close()
+	defer upstream.Close() //nolint:errcheck
 
 	// Update lastActive when the proxied connection closes (successful activity).
 	defer func() { ts.lastActive = time.Now() }()
@@ -518,8 +514,8 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 	var closeOnce sync.Once
 	closeAll := func() {
 		closeOnce.Do(func() {
-			conn.Close()
-			upstream.Close()
+			conn.Close()      //nolint:errcheck
+			upstream.Close() //nolint:errcheck
 		})
 	}
 

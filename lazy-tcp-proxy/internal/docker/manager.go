@@ -404,11 +404,6 @@ func (m *Manager) GetContainerIP(ctx context.Context, containerID, preferNetwork
 		}
 	}
 
-	// Last resort: top-level IP
-	if inspect.NetworkSettings.IPAddress != "" {
-		return inspect.NetworkSettings.IPAddress, nil
-	}
-
 	return "", fmt.Errorf("no IP address found for container %s", containerID[:12])
 }
 

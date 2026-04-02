@@ -34,3 +34,4 @@
 | REQ-030 | Last Active Default & Relative Time Field         | Medium | Completed   | 2026-04-02 | [2026-04-02-last-active-relative.md](2026-04-02-last-active-relative.md) |
 | REQ-031 | GitHub Actions Go CI Workflow                     | High   | Completed   | 2026-04-02 | [2026-04-02-github-actions-go-ci.md](2026-04-02-github-actions-go-ci.md) |
 | REQ-032 | Fix golangci-lint errcheck Violations             | High   | Completed   | 2026-04-02 | [2026-04-02-fix-lint-errcheck.md](2026-04-02-fix-lint-errcheck.md) |
+| REQ-033 | Fix Second Wave of golangci-lint Violations       | High   | Completed   | 2026-04-02 | [2026-04-02-fix-lint-wave2.md](2026-04-02-fix-lint-wave2.md) |
