@@ -91,7 +91,7 @@ The proxy exposes a lightweight HTTP server for operational visibility.
 
 Returns a JSON array of all currently managed containers and their state.
 
-Additionally, the `last_active` is good way to tell if a service hasn't been used in a while - and can possibly be removed.
+`last_active` shows when a container last handled traffic (falling back to the proxy start time if it has never been used). `last_active_relative` shows the same information in human-readable form, making it easy to spot long-idle containers at a glance — handy for identifying decommissioning candidates.
 
 ```sh
 curl http://localhost:8080/status
@@ -106,7 +106,8 @@ curl http://localhost:8080/status
     "target_port": 80,
     "running": true,
     "active_conns": 1,
-    "last_active": "2026-04-01T12:34:56Z"
+    "last_active": "2026-04-01T12:34:56Z",
+    "last_active_relative": "8 hours ago"
   },
   {
     "container_id": "b2c3d4e5f6a1",
@@ -115,7 +116,8 @@ curl http://localhost:8080/status
     "target_port": 8080,
     "running": false,
     "active_conns": 0,
-    "last_active": null
+    "last_active": "2026-04-01T08:00:00Z",
+    "last_active_relative": "3 days ago"
   }
 ]
 ```
