@@ -33,4 +33,4 @@
 | REQ-029 | Root Redirect to /status                          | Low    | Completed   | 2026-04-02 | [2026-04-02-root-redirect-to-status.md](2026-04-02-root-redirect-to-status.md) |
 | REQ-030 | Last Active Default & Relative Time Field         | Medium | Completed   | 2026-04-02 | [2026-04-02-last-active-relative.md](2026-04-02-last-active-relative.md) |
 | REQ-031 | GitHub Actions Go CI Workflow                     | High   | Completed   | 2026-04-02 | [2026-04-02-github-actions-go-ci.md](2026-04-02-github-actions-go-ci.md) |
-| REQ-032 | Fix golangci-lint errcheck Violations             | High   | In Progress | 2026-04-02 | [2026-04-02-fix-lint-errcheck.md](2026-04-02-fix-lint-errcheck.md) |
+| REQ-032 | Fix golangci-lint errcheck Violations             | High   | Completed   | 2026-04-02 | [2026-04-02-fix-lint-errcheck.md](2026-04-02-fix-lint-errcheck.md) |
