@@ -14,11 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/events"
-	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/api/types/network"
-	"github.com/docker/docker/client"
+	"github.com/moby/moby/api/types/events"
+	"github.com/moby/moby/client"
 )
 
 // PortMapping holds a single listen→target port pair.
@@ -115,7 +112,7 @@ func NewManager() (*Manager, error) {
 	if sock := os.Getenv("DOCKER_SOCK"); sock != "" {
 		opts = append([]client.Opt{client.WithHost("unix://" + sock)}, opts...)
 	}
-	cli, err := client.NewClientWithOpts(opts...)
+	cli, err := client.New(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("creating docker client: %w", err)
 	}
@@ -176,10 +173,10 @@ func (m *Manager) SelfContainerID() string {
 // Discover lists all containers (running or stopped) that have the proxy label,
 // joins their networks, and calls handler.RegisterTarget for each.
 func (m *Manager) Discover(ctx context.Context, handler TargetHandler) error {
-	f := filters.NewArgs()
+	f := make(client.Filters)
 	f.Add("label", "lazy-tcp-proxy.enabled=true")
 
-	containers, err := m.cli.ContainerList(ctx, container.ListOptions{
+	containers, err := m.cli.ContainerList(ctx, client.ContainerListOptions{
 		All:     true,
 		Filters: f,
 	})
@@ -189,7 +186,7 @@ func (m *Manager) Discover(ctx context.Context, handler TargetHandler) error {
 
 	var foundNames []string
 	var allNetworks []string
-	for _, c := range containers {
+	for _, c := range containers.Items {
 		info, err := m.containerToTargetInfo(ctx, c.ID)
 		if err != nil {
 			log.Printf("docker: discover: skipping container %s: %v", c.ID[:12], err)
@@ -222,10 +219,11 @@ func (m *Manager) Discover(ctx context.Context, handler TargetHandler) error {
 
 // containerToTargetInfo inspects a container and builds a TargetInfo.
 func (m *Manager) containerToTargetInfo(ctx context.Context, containerID string) (TargetInfo, error) {
-	inspect, err := m.cli.ContainerInspect(ctx, containerID)
+	result, err := m.cli.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
 	if err != nil {
 		return TargetInfo{}, fmt.Errorf("inspecting container: %w", err)
 	}
+	inspect := result.Container
 
 	portsStr, ok := inspect.Config.Labels["lazy-tcp-proxy.ports"]
 	if !ok {
@@ -290,7 +288,7 @@ func (m *Manager) JoinNetworks(ctx context.Context, networkIDs []string) ([]stri
 	var joined []string
 	for _, netID := range networkIDs {
 		// Inspect the network to check current membership
-		netInfo, err := m.cli.NetworkInspect(ctx, netID, network.InspectOptions{})
+		netInfo, err := m.cli.NetworkInspect(ctx, netID, client.NetworkInspectOptions{})
 		if err != nil {
 			log.Printf("docker: could not inspect network \033[32m%s\033[0m: %v", netID, err)
 			continue
@@ -298,7 +296,7 @@ func (m *Manager) JoinNetworks(ctx context.Context, networkIDs []string) ([]stri
 
 		// Check if we're already connected
 		alreadyConnected := false
-		for cid := range netInfo.Containers {
+		for cid := range netInfo.Network.Containers {
 			if strings.HasPrefix(cid, m.selfID) || strings.HasPrefix(m.selfID, cid) {
 				alreadyConnected = true
 				break
@@ -309,16 +307,16 @@ func (m *Manager) JoinNetworks(ctx context.Context, networkIDs []string) ([]stri
 			continue
 		}
 
-		log.Printf("docker: joining network \033[32m%s\033[0m (%s)", netInfo.Name, netID[:12])
-		if err := m.cli.NetworkConnect(ctx, netID, m.selfID, nil); err != nil {
+		log.Printf("docker: joining network \033[32m%s\033[0m (%s)", netInfo.Network.Name, netID[:12])
+		if _, err := m.cli.NetworkConnect(ctx, netID, client.NetworkConnectOptions{Container: m.selfID}); err != nil {
 			// Ignore "already exists" errors
 			if !strings.Contains(err.Error(), "already exists") {
-				log.Printf("docker: failed to join network \033[32m%s\033[0m: %v", netInfo.Name, err)
+				log.Printf("docker: failed to join network \033[32m%s\033[0m: %v", netInfo.Network.Name, err)
 			}
 		} else {
-			joined = append(joined, netInfo.Name)
+			joined = append(joined, netInfo.Network.Name)
 			m.mu.Lock()
-			m.joinedNets[netID] = netInfo.Name
+			m.joinedNets[netID] = netInfo.Network.Name
 			m.mu.Unlock()
 		}
 	}
@@ -341,7 +339,7 @@ func (m *Manager) LeaveNetworks(ctx context.Context) {
 
 	for id, name := range nets {
 		log.Printf("docker: leaving network \033[32m%s\033[0m", name)
-		if err := m.cli.NetworkDisconnect(ctx, id, m.selfID, false); err != nil {
+		if _, err := m.cli.NetworkDisconnect(ctx, id, client.NetworkDisconnectOptions{Container: m.selfID}); err != nil {
 			log.Printf("docker: failed to leave network \033[32m%s\033[0m: %v", name, err)
 		}
 	}
@@ -349,18 +347,18 @@ func (m *Manager) LeaveNetworks(ctx context.Context) {
 
 // EnsureRunning starts the container if it is not already running.
 func (m *Manager) EnsureRunning(ctx context.Context, containerID string) error {
-	inspect, err := m.cli.ContainerInspect(ctx, containerID)
+	result, err := m.cli.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
 	if err != nil {
 		return fmt.Errorf("inspecting container: %w", err)
 	}
 
-	if inspect.State.Running {
+	if result.Container.State.Running {
 		return nil
 	}
 
-	name := strings.TrimPrefix(inspect.Name, "/")
+	name := strings.TrimPrefix(result.Container.Name, "/")
 	log.Printf("docker: starting container \033[33m%s\033[0m", name)
-	if err := m.cli.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
+	if _, err := m.cli.ContainerStart(ctx, containerID, client.ContainerStartOptions{}); err != nil {
 		return fmt.Errorf("starting container: %w", err)
 	}
 
@@ -372,7 +370,7 @@ func (m *Manager) EnsureRunning(ctx context.Context, containerID string) error {
 func (m *Manager) StopContainer(ctx context.Context, containerID string, containerName string) error {
 	timeout := 10
 	log.Printf("docker: stopping container \033[33m%s\033[0m (idle timeout)", containerName)
-	if err := m.cli.ContainerStop(ctx, containerID, container.StopOptions{Timeout: &timeout}); err != nil {
+	if _, err := m.cli.ContainerStop(ctx, containerID, client.ContainerStopOptions{Timeout: &timeout}); err != nil {
 		return fmt.Errorf("stopping container: %w", err)
 	}
 	log.Printf("docker: container \033[33m%s\033[0m stopped", containerName)
@@ -382,25 +380,26 @@ func (m *Manager) StopContainer(ctx context.Context, containerID string, contain
 // GetContainerIP returns the IP address of the container, preferring the given
 // networkID. Falls back to any available network IP.
 func (m *Manager) GetContainerIP(ctx context.Context, containerID, preferNetworkID string) (string, error) {
-	inspect, err := m.cli.ContainerInspect(ctx, containerID)
+	result, err := m.cli.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
 	if err != nil {
 		return "", fmt.Errorf("inspecting container: %w", err)
 	}
+	inspect := result.Container
 
 	// Try the preferred network first
 	if preferNetworkID != "" {
 		for netID, ep := range inspect.NetworkSettings.Networks {
 			_ = netID
-			if ep.NetworkID == preferNetworkID && ep.IPAddress != "" {
-				return ep.IPAddress, nil
+			if ep.NetworkID == preferNetworkID && ep.IPAddress.IsValid() {
+				return ep.IPAddress.String(), nil
 			}
 		}
 	}
 
 	// Fallback: any network with an IP
 	for _, ep := range inspect.NetworkSettings.Networks {
-		if ep.IPAddress != "" {
-			return ep.IPAddress, nil
+		if ep.IPAddress.IsValid() {
+			return ep.IPAddress.String(), nil
 		}
 	}
 
@@ -421,14 +420,14 @@ func (m *Manager) WatchEvents(ctx context.Context, handler TargetHandler) {
 		default:
 		}
 
-		f := filters.NewArgs()
+		f := make(client.Filters)
 		f.Add("type", string(events.ContainerEventType))
 		f.Add("event", "start")
 		f.Add("event", "die")
 		f.Add("event", "destroy")
 		f.Add("event", "create")
 
-		msgCh, errCh := m.cli.Events(ctx, events.ListOptions{Filters: f})
+		eventsResult := m.cli.Events(ctx, client.EventsListOptions{Filters: f})
 
 		log.Printf("docker: watching events...")
 		eventLoop := true
@@ -436,7 +435,7 @@ func (m *Manager) WatchEvents(ctx context.Context, handler TargetHandler) {
 			select {
 			case <-ctx.Done():
 				return
-			case err := <-errCh:
+			case err := <-eventsResult.Err:
 				if err != nil {
 					log.Printf("docker: events error: %v; reconnecting in %s", err, backoff)
 					select {
@@ -450,7 +449,7 @@ func (m *Manager) WatchEvents(ctx context.Context, handler TargetHandler) {
 					}
 					eventLoop = false
 				}
-			case msg := <-msgCh:
+			case msg := <-eventsResult.Messages:
 				backoff = time.Second // reset on success
 				switch msg.Action {
 				case "create", "start":

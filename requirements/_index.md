@@ -36,3 +36,4 @@
 | REQ-032 | Fix golangci-lint errcheck Violations             | High   | Completed   | 2026-04-02 | [2026-04-02-fix-lint-errcheck.md](2026-04-02-fix-lint-errcheck.md) |
 | REQ-033 | Fix Second Wave of golangci-lint Violations       | High   | Completed   | 2026-04-02 | [2026-04-02-fix-lint-wave2.md](2026-04-02-fix-lint-wave2.md) |
 | REQ-034 | Fix govet hostport IPv6 Violation                 | High   | Completed   | 2026-04-02 | [2026-04-02-fix-lint-wave3.md](2026-04-02-fix-lint-wave3.md) |
+| REQ-035 | Migrate docker/docker → moby/moby/client          | High   | Completed   | 2026-04-03 | [2026-04-03-migrate-docker-client-module.md](2026-04-03-migrate-docker-client-module.md) |
