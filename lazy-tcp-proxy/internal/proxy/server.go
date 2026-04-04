@@ -14,7 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/mountain-pass/lazy-tcp-proxy/internal/docker"
+	"github.com/mountain-pass/lazy-tcp-proxy/internal/types"
 )
 
 const (
@@ -73,7 +73,7 @@ var copyBufPool = sync.Pool{
 
 // targetState holds runtime state for a single listen-port→container-port mapping.
 type targetState struct {
-	info        docker.TargetInfo
+	info        types.TargetInfo
 	targetPort  int
 	listener    net.Listener
 	lastActive  time.Time
@@ -91,17 +91,16 @@ type webhookPayload struct {
 	Timestamp     string `json:"timestamp"`
 }
 
-// dockerManager is the subset of docker.Manager used by ProxyServer.
-// Defined as an interface to allow testing without a real Docker daemon.
-type dockerManager interface {
-	EnsureRunning(ctx context.Context, containerID string) error
-	StopContainer(ctx context.Context, containerID, containerName string) error
-	GetContainerIP(ctx context.Context, containerID, preferNetworkID string) (string, error)
+// containerBackend is the subset of backend methods used by ProxyServer.
+type containerBackend interface {
+	EnsureRunning(ctx context.Context, targetID string) error
+	StopContainer(ctx context.Context, targetID, targetName string) error
+	GetUpstreamHost(ctx context.Context, targetID, hint string) (string, error)
 }
 
-// ProxyServer manages TCP listeners and proxies connections to Docker containers.
+// ProxyServer manages TCP listeners and proxies connections to targets.
 type ProxyServer struct {
-	docker        dockerManager
+	backend       containerBackend
 	ctx           context.Context
 	mu            sync.RWMutex
 	targets       map[int]*targetState     // keyed by TCP listen port
@@ -112,10 +111,10 @@ type ProxyServer struct {
 	webhookClient *http.Client
 }
 
-// NewServer creates a new ProxyServer backed by the given DockerManager.
-func NewServer(ctx context.Context, d *docker.Manager, startTime time.Time, idleTimeout, pollInterval time.Duration) *ProxyServer {
+// NewServer creates a new ProxyServer backed by the given backend.
+func NewServer(ctx context.Context, b containerBackend, startTime time.Time, idleTimeout, pollInterval time.Duration) *ProxyServer {
 	return &ProxyServer{
-		docker:        d,
+		backend:       b,
 		ctx:           ctx,
 		targets:       make(map[int]*targetState),
 		udpTargets:    make(map[int]*udpListenerState),
@@ -184,7 +183,7 @@ func (s *ProxyServer) fireWebhook(webhookURL, event, containerID, containerName 
 }
 
 // RegisterTarget adds or updates a target. One listener is created per port mapping.
-func (s *ProxyServer) RegisterTarget(info docker.TargetInfo) {
+func (s *ProxyServer) RegisterTarget(info types.TargetInfo) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -389,7 +388,7 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 
 	for _, e := range byContainer {
 		if e.allIdle {
-			if err := s.docker.StopContainer(ctx, e.containerID, e.name); err != nil {
+			if err := s.backend.StopContainer(ctx, e.containerID, e.name); err != nil {
 				log.Printf("proxy: inactivity: error stopping \033[33m%s\033[0m: %v", e.name, err)
 			} else {
 				for _, ts := range e.tcpStates {
@@ -407,12 +406,11 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 }
 
 // ipBlocked returns true if the remote address should be denied based on the
-// target's allow-list and block-list. Evaluation order: allow-list first (if
-// set), then block-list. An empty list means "no restriction".
-func ipBlocked(remoteAddr string, info docker.TargetInfo) bool {
+// target's allow-list and block-list.
+func ipBlocked(remoteAddr string, info types.TargetInfo) bool {
 	host, _, err := net.SplitHostPort(remoteAddr)
 	if err != nil {
-		return false // can't parse; let through
+		return false
 	}
 	ip := net.ParseIP(host)
 	if ip == nil {
@@ -453,12 +451,10 @@ func (s *ProxyServer) acceptLoop(ts *targetState) {
 	}
 }
 
-// handleConn manages a single inbound connection to a target container.
+// handleConn manages a single inbound connection to a target.
 func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 	defer conn.Close() //nolint:errcheck
 
-	// Increment activeConns immediately so the inactivity checker does not stop
-	// the container while we are starting it or waiting for the upstream dial.
 	ts.activeConns.Add(1)
 	defer func() {
 		if ts.activeConns.Add(-1) == 0 {
@@ -484,8 +480,7 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 	log.Printf("proxy: new connection to \033[33m%s\033[0m (port %d) from \033[36m%s\033[0m",
 		ts.info.ContainerName, ts.targetPort, conn.RemoteAddr())
 
-	// Ensure the container is running
-	if err := s.docker.EnsureRunning(ctx, ts.info.ContainerID); err != nil {
+	if err := s.backend.EnsureRunning(ctx, ts.info.ContainerID); err != nil {
 		log.Printf("proxy: could not start container \033[33m%s\033[0m: %v", ts.info.ContainerName, err)
 		return
 	}
@@ -493,24 +488,24 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 		go s.fireWebhook(ts.info.WebhookURL, "container_started", ts.info.ContainerID, ts.info.ContainerName)
 	}
 
-	// Determine preferred network (first in list)
-	var preferNet string
+	// Determine preferred network hint (first network ID in list; unused in k8s mode)
+	var hint string
 	if len(ts.info.NetworkIDs) > 0 {
-		preferNet = ts.info.NetworkIDs[0]
+		hint = ts.info.NetworkIDs[0]
 	}
 
-	// Retry dial to container
+	// Retry dial to upstream
 	var upstream net.Conn
 	var lastErr error
 	for attempt := 1; attempt <= dialRetries; attempt++ {
-		ip, err := s.docker.GetContainerIP(ctx, ts.info.ContainerID, preferNet)
+		host, err := s.backend.GetUpstreamHost(ctx, ts.info.ContainerID, hint)
 		if err != nil {
-			log.Printf("proxy: attempt %d: could not get IP for \033[33m%s\033[0m: %v", attempt, ts.info.ContainerName, err)
+			log.Printf("proxy: attempt %d: could not get upstream host for \033[33m%s\033[0m: %v", attempt, ts.info.ContainerName, err)
 			time.Sleep(dialInterval)
 			continue
 		}
 
-		addr := net.JoinHostPort(ip, fmt.Sprintf("%d", ts.targetPort))
+		addr := net.JoinHostPort(host, fmt.Sprintf("%d", ts.targetPort))
 		upstream, lastErr = net.DialTimeout("tcp", addr, dialInterval)
 		if lastErr == nil {
 			break
@@ -525,13 +520,10 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 	}
 	defer upstream.Close() //nolint:errcheck
 
-	// Update lastActive when the proxied connection closes (successful activity).
 	defer func() { ts.lastActive = time.Now() }()
 
 	log.Printf("proxy: proxying connection to %s", upstream.RemoteAddr())
 
-	// Bidirectional copy. When either direction closes, both connections are
-	// shut down immediately so the other goroutine is never left hanging.
 	var closeOnce sync.Once
 	closeAll := func() {
 		closeOnce.Do(func() {

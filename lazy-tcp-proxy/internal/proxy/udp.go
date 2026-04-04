@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/mountain-pass/lazy-tcp-proxy/internal/docker"
+	"github.com/mountain-pass/lazy-tcp-proxy/internal/types"
 )
 
 const udpBufSize = 65535
@@ -26,7 +26,7 @@ type udpFlow struct {
 type udpListenerState struct {
 	listenConn  *net.UDPConn
 	targetPort  int
-	info        docker.TargetInfo
+	info        types.TargetInfo
 	lastActive  time.Time
 	activeFlows atomic.Int32
 	idleTimeout *time.Duration // nil = use server default
@@ -99,24 +99,24 @@ func (s *ProxyServer) startUDPFlow(uls *udpListenerState, clientAddr *net.UDPAdd
 		uls.mu.Unlock()
 	}
 
-	if err := s.docker.EnsureRunning(ctx, uls.info.ContainerID); err != nil {
+	if err := s.backend.EnsureRunning(ctx, uls.info.ContainerID); err != nil {
 		log.Printf("proxy: udp: could not start container \033[33m%s\033[0m: %v", uls.info.ContainerName, err)
 		cleanup()
 		return
 	}
 
-	var preferNet string
+	var hint string
 	if len(uls.info.NetworkIDs) > 0 {
-		preferNet = uls.info.NetworkIDs[0]
+		hint = uls.info.NetworkIDs[0]
 	}
-	ip, err := s.docker.GetContainerIP(ctx, uls.info.ContainerID, preferNet)
+	host, err := s.backend.GetUpstreamHost(ctx, uls.info.ContainerID, hint)
 	if err != nil {
-		log.Printf("proxy: udp: could not get IP for \033[33m%s\033[0m: %v", uls.info.ContainerName, err)
+		log.Printf("proxy: udp: could not get upstream host for \033[33m%s\033[0m: %v", uls.info.ContainerName, err)
 		cleanup()
 		return
 	}
 
-	upstreamAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", ip, uls.targetPort))
+	upstreamAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", host, uls.targetPort))
 	if err != nil {
 		log.Printf("proxy: udp: could not resolve upstream addr for \033[33m%s\033[0m: %v", uls.info.ContainerName, err)
 		cleanup()

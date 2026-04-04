@@ -16,113 +16,18 @@ import (
 
 	"github.com/moby/moby/api/types/events"
 	"github.com/moby/moby/client"
+	"github.com/mountain-pass/lazy-tcp-proxy/internal/types"
 )
-
-// PortMapping holds a single listen→target port pair.
-type PortMapping struct {
-	ListenPort int
-	TargetPort int
-}
-
-// TargetInfo holds information about a proxy target container.
-type TargetInfo struct {
-	ContainerID   string
-	ContainerName string
-	Ports         []PortMapping
-	UDPPorts      []PortMapping
-	NetworkIDs    []string
-	AllowList     []net.IPNet    // empty = no restriction (all IPs allowed)
-	BlockList     []net.IPNet    // empty = no restriction (no IPs blocked)
-	IdleTimeout   *time.Duration // nil = use global default; non-nil (incl. 0) = per-container override
-	Running       bool           // true if the container was running at the time of inspection
-	WebhookURL    string         // empty = no webhook
-}
-
-// parsePortMappings tokenises a comma-separated "<listen>:<target>" string into
-// a []PortMapping. Invalid tokens are skipped with a warning log.
-func parsePortMappings(label, s string) []PortMapping {
-	var out []PortMapping
-	for _, token := range strings.Split(s, ",") {
-		parts := strings.SplitN(strings.TrimSpace(token), ":", 2)
-		if len(parts) != 2 {
-			log.Printf("docker: label %s: ignoring invalid token %q: expected <listen>:<target>", label, token)
-			continue
-		}
-		lp, err1 := strconv.Atoi(strings.TrimSpace(parts[0]))
-		tp, err2 := strconv.Atoi(strings.TrimSpace(parts[1]))
-		if err1 != nil || err2 != nil {
-			log.Printf("docker: label %s: ignoring invalid token %q: ports must be integers", label, token)
-			continue
-		}
-		out = append(out, PortMapping{ListenPort: lp, TargetPort: tp})
-	}
-	return out
-}
-
-// parseIPList parses a comma-delimited string of IPs and/or CIDRs into a
-// slice of net.IPNet. Plain IPs are stored as /32 (IPv4) or /128 (IPv6) nets.
-// Invalid entries are skipped with a warning log.
-func parseIPList(label, s string) []net.IPNet {
-	var nets []net.IPNet
-	for _, raw := range strings.Split(s, ",") {
-		entry := strings.TrimSpace(raw)
-		if entry == "" {
-			continue
-		}
-		// Try CIDR first
-		_, ipNet, err := net.ParseCIDR(entry)
-		if err == nil {
-			nets = append(nets, *ipNet)
-			continue
-		}
-		// Try plain IP
-		ip := net.ParseIP(entry)
-		if ip == nil {
-			log.Printf("docker: label %s: ignoring invalid entry %q", label, entry)
-			continue
-		}
-		bits := 32
-		if ip.To4() == nil {
-			bits = 128
-		}
-		nets = append(nets, net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)})
-	}
-	return nets
-}
-
-// parseIdleTimeoutLabel converts a raw label value to a *time.Duration.
-// Returns nil if the value is absent, empty, non-numeric, or negative.
-// Zero is valid and means "stop immediately when all connections close".
-func parseIdleTimeoutLabel(name, raw string) *time.Duration {
-	v := strings.TrimSpace(raw)
-	if v == "" {
-		return nil
-	}
-	n, err := strconv.Atoi(v)
-	if err != nil || n < 0 {
-		log.Printf("docker: container %s: ignoring invalid idle-timeout-secs %q", name, raw)
-		return nil
-	}
-	d := time.Duration(n) * time.Second
-	return &d
-}
-
-// TargetHandler is implemented by the proxy server to receive container updates.
-type TargetHandler interface {
-	RegisterTarget(info TargetInfo)
-	RemoveTarget(containerID string)
-	ContainerStopped(containerID string)
-}
 
 // Manager wraps the Docker client with proxy-specific logic.
 type Manager struct {
-	cli         *client.Client
-	selfID      string
-	mu          sync.Mutex
-	joinedNets  map[string]string // networkID → name
+	cli        *client.Client
+	selfID     string
+	mu         sync.Mutex
+	joinedNets map[string]string // networkID → name
 }
 
-// NewManager creates a new DockerManager. The Docker socket path can be set via
+// NewManager creates a new Manager. The Docker socket path can be set via
 // DOCKER_SOCK (e.g. /var/run/docker.sock). Falls back to DOCKER_HOST, then the
 // default socket.
 func NewManager() (*Manager, error) {
@@ -190,7 +95,7 @@ func (m *Manager) SelfContainerID() string {
 
 // Discover lists all containers (running or stopped) that have the proxy label,
 // joins their networks, and calls handler.RegisterTarget for each.
-func (m *Manager) Discover(ctx context.Context, handler TargetHandler) error {
+func (m *Manager) Discover(ctx context.Context, handler types.TargetHandler) error {
 	f := make(client.Filters)
 	f.Add("label", "lazy-tcp-proxy.enabled=true")
 
@@ -236,25 +141,25 @@ func (m *Manager) Discover(ctx context.Context, handler TargetHandler) error {
 }
 
 // containerToTargetInfo inspects a container and builds a TargetInfo.
-func (m *Manager) containerToTargetInfo(ctx context.Context, containerID string) (TargetInfo, error) {
+func (m *Manager) containerToTargetInfo(ctx context.Context, containerID string) (types.TargetInfo, error) {
 	result, err := m.cli.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
 	if err != nil {
-		return TargetInfo{}, fmt.Errorf("inspecting container: %w", err)
+		return types.TargetInfo{}, fmt.Errorf("inspecting container: %w", err)
 	}
 	inspect := result.Container
 
 	portsStr, ok := inspect.Config.Labels["lazy-tcp-proxy.ports"]
 	if !ok {
-		return TargetInfo{}, fmt.Errorf("missing label lazy-tcp-proxy.ports")
+		return types.TargetInfo{}, fmt.Errorf("missing label lazy-tcp-proxy.ports")
 	}
-	ports := parsePortMappings("lazy-tcp-proxy.ports", portsStr)
+	ports := types.ParsePortMappings("lazy-tcp-proxy.ports", portsStr)
 	if len(ports) == 0 {
-		return TargetInfo{}, fmt.Errorf("label lazy-tcp-proxy.ports contains no valid port mappings")
+		return types.TargetInfo{}, fmt.Errorf("label lazy-tcp-proxy.ports contains no valid port mappings")
 	}
 
-	var udpPorts []PortMapping
+	var udpPorts []types.PortMapping
 	if v, ok := inspect.Config.Labels["lazy-tcp-proxy.udp-ports"]; ok && v != "" {
-		udpPorts = parsePortMappings("lazy-tcp-proxy.udp-ports", v)
+		udpPorts = types.ParsePortMappings("lazy-tcp-proxy.udp-ports", v)
 	}
 
 	name := strings.TrimPrefix(inspect.Name, "/")
@@ -268,13 +173,13 @@ func (m *Manager) containerToTargetInfo(ctx context.Context, containerID string)
 
 	var allowList, blockList []net.IPNet
 	if v, ok := inspect.Config.Labels["lazy-tcp-proxy.allow-list"]; ok && v != "" {
-		allowList = parseIPList("lazy-tcp-proxy.allow-list", v)
+		allowList = types.ParseIPList("lazy-tcp-proxy.allow-list", v)
 	}
 	if v, ok := inspect.Config.Labels["lazy-tcp-proxy.block-list"]; ok && v != "" {
-		blockList = parseIPList("lazy-tcp-proxy.block-list", v)
+		blockList = types.ParseIPList("lazy-tcp-proxy.block-list", v)
 	}
 
-	idleTimeout := parseIdleTimeoutLabel(name, inspect.Config.Labels["lazy-tcp-proxy.idle-timeout-secs"])
+	idleTimeout := types.ParseIdleTimeoutLabel(name, inspect.Config.Labels["lazy-tcp-proxy.idle-timeout-secs"])
 
 	var webhookURL string
 	if v := strings.TrimSpace(inspect.Config.Labels["lazy-tcp-proxy.webhook-url"]); v != "" {
@@ -285,7 +190,7 @@ func (m *Manager) containerToTargetInfo(ctx context.Context, containerID string)
 		}
 	}
 
-	return TargetInfo{
+	return types.TargetInfo{
 		ContainerID:   containerID,
 		ContainerName: name,
 		Ports:         ports,
@@ -308,14 +213,12 @@ func (m *Manager) JoinNetworks(ctx context.Context, networkIDs []string) ([]stri
 
 	var joined []string
 	for _, netID := range networkIDs {
-		// Inspect the network to check current membership
 		netInfo, err := m.cli.NetworkInspect(ctx, netID, client.NetworkInspectOptions{})
 		if err != nil {
 			log.Printf("docker: could not inspect network \033[32m%s\033[0m: %v", netID, err)
 			continue
 		}
 
-		// Check if we're already connected
 		alreadyConnected := false
 		for cid := range netInfo.Network.Containers {
 			if strings.HasPrefix(cid, m.selfID) || strings.HasPrefix(m.selfID, cid) {
@@ -330,7 +233,6 @@ func (m *Manager) JoinNetworks(ctx context.Context, networkIDs []string) ([]stri
 
 		log.Printf("docker: joining network \033[32m%s\033[0m (%s)", netInfo.Network.Name, netID[:12])
 		if _, err := m.cli.NetworkConnect(ctx, netID, client.NetworkConnectOptions{Container: m.selfID}); err != nil {
-			// Ignore "already exists" errors
 			if !strings.Contains(err.Error(), "already exists") {
 				log.Printf("docker: failed to join network \033[32m%s\033[0m: %v", netInfo.Network.Name, err)
 			}
@@ -366,6 +268,11 @@ func (m *Manager) LeaveNetworks(ctx context.Context) {
 	}
 }
 
+// Shutdown implements the backendManager interface by leaving all joined networks.
+func (m *Manager) Shutdown(ctx context.Context) {
+	m.LeaveNetworks(ctx)
+}
+
 // EnsureRunning starts the container if it is not already running.
 func (m *Manager) EnsureRunning(ctx context.Context, containerID string) error {
 	result, err := m.cli.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
@@ -398,9 +305,9 @@ func (m *Manager) StopContainer(ctx context.Context, containerID string, contain
 	return nil
 }
 
-// GetContainerIP returns the IP address of the container, preferring the given
+// GetUpstreamHost returns the IP address of the container, preferring the given
 // networkID. Falls back to any available network IP.
-func (m *Manager) GetContainerIP(ctx context.Context, containerID, preferNetworkID string) (string, error) {
+func (m *Manager) GetUpstreamHost(ctx context.Context, containerID, preferNetworkID string) (string, error) {
 	result, err := m.cli.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
 	if err != nil {
 		return "", fmt.Errorf("inspecting container: %w", err)
@@ -409,8 +316,7 @@ func (m *Manager) GetContainerIP(ctx context.Context, containerID, preferNetwork
 
 	// Try the preferred network first
 	if preferNetworkID != "" {
-		for netID, ep := range inspect.NetworkSettings.Networks {
-			_ = netID
+		for _, ep := range inspect.NetworkSettings.Networks {
 			if ep.NetworkID == preferNetworkID && ep.IPAddress.IsValid() {
 				return ep.IPAddress.String(), nil
 			}
@@ -428,9 +334,10 @@ func (m *Manager) GetContainerIP(ctx context.Context, containerID, preferNetwork
 }
 
 // WatchEvents subscribes to Docker events for containers with the proxy label.
-// On create/start events it calls Discover; on die events it calls handler.RemoveTarget.
+// On create/start events it calls handler.RegisterTarget; on die/destroy events
+// it calls handler.ContainerStopped/RemoveTarget.
 // It reconnects with exponential backoff on error.
-func (m *Manager) WatchEvents(ctx context.Context, handler TargetHandler) {
+func (m *Manager) WatchEvents(ctx context.Context, handler types.TargetHandler) {
 	backoff := time.Second
 	maxBackoff := 30 * time.Second
 

@@ -39,5 +39,5 @@
 | REQ-035 | Migrate docker/docker → moby/moby/client          | High   | Completed   | 2026-04-03 | [2026-04-03-migrate-docker-client-module.md](2026-04-03-migrate-docker-client-module.md) |
 | REQ-036 | UDP Test Container in Example Docker Compose      | Low    | Completed   | 2026-04-03 | [2026-04-03-udp-test-container.md](2026-04-03-udp-test-container.md) |
 | REQ-037 | Per-Container Idle Timeout Label Override         | Medium | Completed   | 2026-04-03 | [2026-04-03-idle-timeout-label-override.md](2026-04-03-idle-timeout-label-override.md) |
-| REQ-038 | Kubernetes Backend (BACKEND=kubernetes)           | High   | In Progress | 2026-04-04 | [2026-04-04-kubernetes-backend.md](2026-04-04-kubernetes-backend.md) |
+| REQ-038 | Kubernetes Backend (BACKEND=kubernetes)           | High   | Completed   | 2026-04-04 | [2026-04-04-kubernetes-backend.md](2026-04-04-kubernetes-backend.md) |
 | REQ-039 | Reorganise Example Directory (docker/ subdir)     | Low    | Completed   | 2026-04-04 | [2026-04-04-reorganise-example-dir.md](2026-04-04-reorganise-example-dir.md) |
