@@ -19,10 +19,10 @@ func TestResolveIdleTimeout_ValidValue(t *testing.T) {
 	}
 }
 
-func TestResolveIdleTimeout_ZeroFallsBackToDefault(t *testing.T) {
+func TestResolveIdleTimeout_ZeroMeansImmediate(t *testing.T) {
 	t.Setenv("IDLE_TIMEOUT_SECS", "0")
-	if got := resolveIdleTimeout(); got != defaultIdleTimeout {
-		t.Errorf("got %s, want default %s", got, defaultIdleTimeout)
+	if got := resolveIdleTimeout(); got != 0 {
+		t.Errorf("got %s, want 0s (immediate shutdown)", got)
 	}
 }
 

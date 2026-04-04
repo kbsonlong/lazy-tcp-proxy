@@ -10,6 +10,31 @@ import (
 	"github.com/mountain-pass/lazy-tcp-proxy/internal/docker"
 )
 
+// ---- effectiveTimeout ----
+
+func TestEffectiveTimeout_NoOverride(t *testing.T) {
+	global := 2 * time.Minute
+	if got := effectiveTimeout(nil, global); got != global {
+		t.Errorf("got %s, want %s", got, global)
+	}
+}
+
+func TestEffectiveTimeout_WithOverride(t *testing.T) {
+	global := 2 * time.Minute
+	override := 30 * time.Second
+	if got := effectiveTimeout(&override, global); got != override {
+		t.Errorf("got %s, want %s", got, override)
+	}
+}
+
+func TestEffectiveTimeout_ZeroOverride(t *testing.T) {
+	global := 2 * time.Minute
+	zero := time.Duration(0)
+	if got := effectiveTimeout(&zero, global); got != 0 {
+		t.Errorf("got %s, want 0s", got)
+	}
+}
+
 // ---- ipBlocked ----
 
 func TestIPBlocked_NoLists(t *testing.T) {
@@ -401,6 +426,83 @@ func TestCheckInactivity_UDPIdleWithNoTCPStops(t *testing.T) {
 		}
 	default:
 		t.Error("expected UDP-only container to be stopped when idle")
+	}
+}
+
+func TestCheckInactivity_PerContainerTimeout_ShortOverrideStops(t *testing.T) {
+	// Global timeout = 5 min, per-container = 10s.
+	// lastActive = 1 minute ago → past per-container timeout → should stop.
+	stopped := make(chan string, 1)
+	s := newTestServerWithStopper(func(id string) { stopped <- id })
+
+	override := 10 * time.Second
+	s.targets[9000] = &targetState{
+		info:        docker.TargetInfo{ContainerID: "ctr-1", ContainerName: "svc"},
+		targetPort:  80,
+		running:     true,
+		lastActive:  time.Now().Add(-1 * time.Minute),
+		idleTimeout: &override,
+	}
+
+	s.checkInactivity(context.Background())
+
+	select {
+	case id := <-stopped:
+		if id != "ctr-1" {
+			t.Errorf("expected ctr-1, got %s", id)
+		}
+	default:
+		t.Error("expected container to be stopped: per-container timeout exceeded")
+	}
+}
+
+func TestCheckInactivity_PerContainerTimeout_LongOverrideDoesNotStop(t *testing.T) {
+	// Global timeout = 5 min, per-container = 10 min.
+	// lastActive = 6 minutes ago → past global but within per-container → should NOT stop.
+	stopped := make(chan string, 1)
+	s := newTestServerWithStopper(func(id string) { stopped <- id })
+
+	override := 10 * time.Minute
+	s.targets[9000] = &targetState{
+		info:        docker.TargetInfo{ContainerID: "ctr-1", ContainerName: "svc"},
+		targetPort:  80,
+		running:     true,
+		lastActive:  time.Now().Add(-6 * time.Minute),
+		idleTimeout: &override,
+	}
+
+	s.checkInactivity(context.Background())
+
+	select {
+	case <-stopped:
+		t.Error("should not stop: lastActive is within the per-container 10-minute timeout")
+	default:
+	}
+}
+
+func TestCheckInactivity_ZeroPerContainerTimeout_StopsImmediately(t *testing.T) {
+	// Per-container timeout = 0 → stop on next tick regardless of lastActive.
+	stopped := make(chan string, 1)
+	s := newTestServerWithStopper(func(id string) { stopped <- id })
+
+	zero := time.Duration(0)
+	s.targets[9000] = &targetState{
+		info:        docker.TargetInfo{ContainerID: "ctr-1", ContainerName: "svc"},
+		targetPort:  80,
+		running:     true,
+		lastActive:  time.Now(), // just active — doesn't matter with timeout=0
+		idleTimeout: &zero,
+	}
+
+	s.checkInactivity(context.Background())
+
+	select {
+	case id := <-stopped:
+		if id != "ctr-1" {
+			t.Errorf("expected ctr-1, got %s", id)
+		}
+	default:
+		t.Error("expected container to be stopped immediately (timeout=0)")
 	}
 }
 

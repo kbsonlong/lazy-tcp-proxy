@@ -3,6 +3,7 @@ package docker
 import (
 	"net"
 	"testing"
+	"time"
 )
 
 // ---- parsePortMappings ----
@@ -135,5 +136,61 @@ func TestParseIPList_WhitespaceOnly(t *testing.T) {
 	nets := parseIPList("test", "  ,  ")
 	if len(nets) != 0 {
 		t.Errorf("expected 0 nets for whitespace-only, got %d", len(nets))
+	}
+}
+
+// ---- parseIdleTimeoutLabel ----
+
+func TestParseIdleTimeoutLabel_ValidPositive(t *testing.T) {
+	got := parseIdleTimeoutLabel("svc", "30")
+	if got == nil {
+		t.Fatal("expected non-nil result for valid positive value")
+	}
+	if *got != 30*time.Second {
+		t.Errorf("got %s, want 30s", *got)
+	}
+}
+
+func TestParseIdleTimeoutLabel_Zero(t *testing.T) {
+	got := parseIdleTimeoutLabel("svc", "0")
+	if got == nil {
+		t.Fatal("expected non-nil result for zero (immediate shutdown)")
+	}
+	if *got != 0 {
+		t.Errorf("got %s, want 0s", *got)
+	}
+}
+
+func TestParseIdleTimeoutLabel_WhitespaceAround(t *testing.T) {
+	got := parseIdleTimeoutLabel("svc", "  60  ")
+	if got == nil {
+		t.Fatal("expected non-nil result; whitespace should be trimmed")
+	}
+	if *got != 60*time.Second {
+		t.Errorf("got %s, want 60s", *got)
+	}
+}
+
+func TestParseIdleTimeoutLabel_Empty(t *testing.T) {
+	if got := parseIdleTimeoutLabel("svc", ""); got != nil {
+		t.Errorf("expected nil for empty string, got %s", *got)
+	}
+}
+
+func TestParseIdleTimeoutLabel_WhitespaceOnly(t *testing.T) {
+	if got := parseIdleTimeoutLabel("svc", "   "); got != nil {
+		t.Errorf("expected nil for whitespace-only, got %s", *got)
+	}
+}
+
+func TestParseIdleTimeoutLabel_Negative(t *testing.T) {
+	if got := parseIdleTimeoutLabel("svc", "-5"); got != nil {
+		t.Errorf("expected nil for negative value, got %s", *got)
+	}
+}
+
+func TestParseIdleTimeoutLabel_NonNumeric(t *testing.T) {
+	if got := parseIdleTimeoutLabel("svc", "abc"); got != nil {
+		t.Errorf("expected nil for non-numeric value, got %s", *got)
 	}
 }

@@ -31,10 +31,11 @@ type TargetInfo struct {
 	Ports         []PortMapping
 	UDPPorts      []PortMapping
 	NetworkIDs    []string
-	AllowList     []net.IPNet // empty = no restriction (all IPs allowed)
-	BlockList     []net.IPNet // empty = no restriction (no IPs blocked)
-	Running       bool        // true if the container was running at the time of inspection
-	WebhookURL    string      // empty = no webhook
+	AllowList     []net.IPNet    // empty = no restriction (all IPs allowed)
+	BlockList     []net.IPNet    // empty = no restriction (no IPs blocked)
+	IdleTimeout   *time.Duration // nil = use global default; non-nil (incl. 0) = per-container override
+	Running       bool           // true if the container was running at the time of inspection
+	WebhookURL    string         // empty = no webhook
 }
 
 // parsePortMappings tokenises a comma-separated "<listen>:<target>" string into
@@ -89,6 +90,23 @@ func parseIPList(label, s string) []net.IPNet {
 	return nets
 }
 
+// parseIdleTimeoutLabel converts a raw label value to a *time.Duration.
+// Returns nil if the value is absent, empty, non-numeric, or negative.
+// Zero is valid and means "stop immediately when all connections close".
+func parseIdleTimeoutLabel(name, raw string) *time.Duration {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		log.Printf("docker: container %s: ignoring invalid idle-timeout-secs %q", name, raw)
+		return nil
+	}
+	d := time.Duration(n) * time.Second
+	return &d
+}
+
 // TargetHandler is implemented by the proxy server to receive container updates.
 type TargetHandler interface {
 	RegisterTarget(info TargetInfo)
@@ -108,7 +126,7 @@ type Manager struct {
 // DOCKER_SOCK (e.g. /var/run/docker.sock). Falls back to DOCKER_HOST, then the
 // default socket.
 func NewManager() (*Manager, error) {
-	opts := []client.Opt{client.FromEnv, client.WithAPIVersionNegotiation()}
+	opts := []client.Opt{client.FromEnv}
 	if sock := os.Getenv("DOCKER_SOCK"); sock != "" {
 		opts = append([]client.Opt{client.WithHost("unix://" + sock)}, opts...)
 	}
@@ -256,6 +274,8 @@ func (m *Manager) containerToTargetInfo(ctx context.Context, containerID string)
 		blockList = parseIPList("lazy-tcp-proxy.block-list", v)
 	}
 
+	idleTimeout := parseIdleTimeoutLabel(name, inspect.Config.Labels["lazy-tcp-proxy.idle-timeout-secs"])
+
 	var webhookURL string
 	if v := strings.TrimSpace(inspect.Config.Labels["lazy-tcp-proxy.webhook-url"]); v != "" {
 		if _, err := url.ParseRequestURI(v); err != nil {
@@ -273,6 +293,7 @@ func (m *Manager) containerToTargetInfo(ctx context.Context, containerID string)
 		NetworkIDs:    networkIDs,
 		AllowList:     allowList,
 		BlockList:     blockList,
+		IdleTimeout:   idleTimeout,
 		Running:       inspect.State.Running,
 		WebhookURL:    webhookURL,
 	}, nil

@@ -27,7 +27,7 @@ func resolveIdleTimeout() time.Duration {
 		return defaultIdleTimeout
 	}
 	n, err := strconv.Atoi(raw)
-	if err != nil || n <= 0 {
+	if err != nil || n < 0 {
 		log.Printf("IDLE_TIMEOUT_SECS=%q is invalid; using default %s", raw, defaultIdleTimeout)
 		return defaultIdleTimeout
 	}
@@ -116,7 +116,11 @@ func main() {
 
 	// Create the proxy server
 	idleTimeout := resolveIdleTimeout()
-	log.Printf("idle timeout: %s (set IDLE_TIMEOUT_SECS to override)", idleTimeout)
+	if idleTimeout == 0 {
+		log.Printf("idle timeout: 0s — containers stop immediately when all connections close (set IDLE_TIMEOUT_SECS to override)")
+	} else {
+		log.Printf("idle timeout: %s (set IDLE_TIMEOUT_SECS to override)", idleTimeout)
+	}
 	tick := resolvePollInterval()
 	log.Printf("inactivity check interval: %s (set POLL_INTERVAL_SECS to override)", tick)
 	srv := proxy.NewServer(ctx, mgr, startTime, idleTimeout, tick)

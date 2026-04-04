@@ -29,6 +29,7 @@ type udpListenerState struct {
 	info        docker.TargetInfo
 	lastActive  time.Time
 	activeFlows atomic.Int32
+	idleTimeout *time.Duration // nil = use server default
 	running     bool
 	removed     bool
 	mu          sync.Mutex
@@ -181,9 +182,10 @@ func (s *ProxyServer) udpFlowSweeper(ctx context.Context, uls *udpListenerState,
 				return
 			}
 			now := time.Now()
+			eff := effectiveTimeout(uls.idleTimeout, s.idleTimeout)
 			uls.mu.Lock()
 			for key, flow := range uls.flows {
-				if now.Sub(flow.lastActive) > s.idleTimeout {
+				if now.Sub(flow.lastActive) > eff {
 					log.Printf("proxy: udp: flow \033[36m%s\033[0m -> \033[33m%s\033[0m expired",
 						flow.clientAddr, uls.info.ContainerName)
 					if err := flow.upstreamConn.Close(); err != nil {
