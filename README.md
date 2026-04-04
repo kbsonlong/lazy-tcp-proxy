@@ -41,7 +41,7 @@ docker run -d \
 
 Then add labels to new or existing containers (see below).
 
-Or start with the example project - [`example/docker-compose.yml`](example/docker-compose.yml).
+Or start with the example project - [`example/docker/docker-compose.yml`](example/docker/docker-compose.yml).
 
 ---
 
