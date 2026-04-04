@@ -28,3 +28,14 @@ scripts:
         --tag mountainpass/lazy-tcp-proxy:latest \
         --push \
         .
+
+  ghsetup:
+    $cmd: |
+      gh auth login
+      gh repo set-default
+
+  release:
+    $cmd: |
+      VERSION=1.`date +%Y%m%d`.`git rev-parse --short=8 HEAD`
+      DOCKERHUB_URL=https://hub.docker.com/repository/docker/mountainpass/lazy-tcp-proxy/tags/$VERSION/
+      gh release create "$VERSION" --title "$VERSION" --notes "Docker image: $DOCKERHUB_URL"
