@@ -38,4 +38,4 @@
 | REQ-034 | Fix govet hostport IPv6 Violation                 | High   | Completed   | 2026-04-02 | [2026-04-02-fix-lint-wave3.md](2026-04-02-fix-lint-wave3.md) |
 | REQ-035 | Migrate docker/docker → moby/moby/client          | High   | Completed   | 2026-04-03 | [2026-04-03-migrate-docker-client-module.md](2026-04-03-migrate-docker-client-module.md) |
 | REQ-036 | UDP Test Container in Example Docker Compose      | Low    | Completed   | 2026-04-03 | [2026-04-03-udp-test-container.md](2026-04-03-udp-test-container.md) |
-| REQ-037 | Per-Container Idle Timeout Label Override         | Medium | Planned     | 2026-04-03 | [2026-04-03-idle-timeout-label-override.md](2026-04-03-idle-timeout-label-override.md) |
+| REQ-037 | Per-Container Idle Timeout Label Override         | Medium | In Progress | 2026-04-03 | [2026-04-03-idle-timeout-label-override.md](2026-04-03-idle-timeout-label-override.md) |

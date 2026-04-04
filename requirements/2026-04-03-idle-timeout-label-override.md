@@ -2,7 +2,7 @@
 
 **Date Added**: 2026-04-03
 **Priority**: Medium
-**Status**: Planned
+**Status**: In Progress
 
 ## Problem Statement
 
@@ -64,6 +64,7 @@ a container is stopped as soon as its last connection closes.
       warning and falls back to the global timeout.
 - [ ] The "idle timer started" log shows the correct effective timeout; it says "immediately"
       when the effective timeout is `0`.
+- [ ] `README.md` Container Label Configuration table includes `lazy-tcp-proxy.idle-timeout-secs`; `IDLE_TIMEOUT_SECS` description notes `0` = immediate shutdown.
 - [ ] `go build ./...` and `go test ./...` pass.
 
 ## Dependencies
