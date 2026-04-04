@@ -126,7 +126,7 @@ type Manager struct {
 // DOCKER_SOCK (e.g. /var/run/docker.sock). Falls back to DOCKER_HOST, then the
 // default socket.
 func NewManager() (*Manager, error) {
-	opts := []client.Opt{client.FromEnv, client.WithAPIVersionNegotiation()}
+	opts := []client.Opt{client.FromEnv}
 	if sock := os.Getenv("DOCKER_SOCK"); sock != "" {
 		opts = append([]client.Opt{client.WithHost("unix://" + sock)}, opts...)
 	}
