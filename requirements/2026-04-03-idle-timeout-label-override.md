@@ -2,7 +2,7 @@
 
 **Date Added**: 2026-04-03
 **Priority**: Medium
-**Status**: In Progress
+**Status**: Completed
 
 ## Problem Statement
 
@@ -53,19 +53,19 @@ a container is stopped as soon as its last connection closes.
 
 ## Acceptance Criteria
 
-- [ ] A container with `lazy-tcp-proxy.idle-timeout-secs=30` is stopped after ~30 s of
+- [x] A container with `lazy-tcp-proxy.idle-timeout-secs=30` is stopped after ~30 s of
       inactivity regardless of the global `IDLE_TIMEOUT_SECS`.
-- [ ] A container without the label uses the global `IDLE_TIMEOUT_SECS`.
-- [ ] A container with `lazy-tcp-proxy.idle-timeout-secs=0` is stopped on the next poll
+- [x] A container without the label uses the global `IDLE_TIMEOUT_SECS`.
+- [x] A container with `lazy-tcp-proxy.idle-timeout-secs=0` is stopped on the next poll
       tick after its last connection closes (immediate shutdown).
-- [ ] `IDLE_TIMEOUT_SECS=0` makes all containers (without a label override) use immediate
+- [x] `IDLE_TIMEOUT_SECS=0` makes all containers (without a label override) use immediate
       shutdown; the startup log reflects this.
-- [ ] An invalid label value (e.g. `lazy-tcp-proxy.idle-timeout-secs=abc` or `-5`) logs a
+- [x] An invalid label value (e.g. `lazy-tcp-proxy.idle-timeout-secs=abc` or `-5`) logs a
       warning and falls back to the global timeout.
-- [ ] The "idle timer started" log shows the correct effective timeout; it says "immediately"
+- [x] The "idle timer started" log shows the correct effective timeout; it says "immediately"
       when the effective timeout is `0`.
-- [ ] `README.md` Container Label Configuration table includes `lazy-tcp-proxy.idle-timeout-secs`; `IDLE_TIMEOUT_SECS` description notes `0` = immediate shutdown.
-- [ ] `go build ./...` and `go test ./...` pass.
+- [x] `README.md` Container Label Configuration table includes `lazy-tcp-proxy.idle-timeout-secs`; `IDLE_TIMEOUT_SECS` description notes `0` = immediate shutdown.
+- [x] `go build ./...` and `go test ./...` pass.
 
 ## Dependencies
 

@@ -56,6 +56,7 @@ Add these labels to any container you want proxied/managed:
 | `lazy-tcp-proxy.udp-ports` | No | Comma-separated `<listen>:<target>` UDP port pairs (see [UDP Support](#udp-support)) |
 | `lazy-tcp-proxy.allow-list` | No | Comma-separated IPs/CIDRs. If set, only matching source addresses are forwarded; all others are silently dropped |
 | `lazy-tcp-proxy.block-list` | No | Comma-separated IPs/CIDRs. If set, matching source addresses are silently dropped; all others are forwarded |
+| `lazy-tcp-proxy.idle-timeout-secs` | No | Override the global `IDLE_TIMEOUT_SECS` for this container only (seconds). `0` = stop immediately when the last connection closes |
 | `lazy-tcp-proxy.webhook-url` | No | HTTP(S) URL to POST lifecycle events to (see [Webhooks](#webhooks)) |
 
 Both `allow-list` and `block-list` accept plain IP addresses (e.g. `127.0.0.1`, `::1`) and CIDR ranges (e.g. `192.168.0.0/16`, `fd00::/8`). If both labels are set, the allow-list is evaluated first. Blocked connections are logged with a red `(blocked)` suffix and do **not** wake the container.
@@ -76,7 +77,7 @@ labels:
 
 | Variable            | Description                                                        | Default                   |
 |---------------------|--------------------------------------------------------------------|---------------------------|
-| `IDLE_TIMEOUT_SECS` | How long (in seconds) a container must be idle before being stopped| 120                       |
+| `IDLE_TIMEOUT_SECS` | How long (in seconds) a container must be idle before being stopped. `0` = stop immediately once all connections close | 120                       |
 | `POLL_INTERVAL_SECS`| How often (in seconds) to check for idle containers                | 15                        |
 | `DOCKER_SOCK`       | Path to Docker socket                                              | `/var/run/docker.sock`    |
 | `STATUS_PORT`       | Port for the HTTP status server; set to `0` to disable            | 8080                      |

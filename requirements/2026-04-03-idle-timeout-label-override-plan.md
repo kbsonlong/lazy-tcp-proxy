@@ -2,7 +2,7 @@
 
 **Requirement**: [2026-04-03-idle-timeout-label-override.md](2026-04-03-idle-timeout-label-override.md)
 **Date**: 2026-04-03
-**Status**: Draft
+**Status**: Implemented
 
 ## Implementation Steps
 

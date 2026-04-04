@@ -56,6 +56,14 @@ func relativeTime(t, now time.Time) string {
 	}
 }
 
+// effectiveTimeout returns the per-container idle timeout if set, otherwise the server default.
+func effectiveTimeout(perContainer *time.Duration, global time.Duration) time.Duration {
+	if perContainer != nil {
+		return *perContainer
+	}
+	return global
+}
+
 var copyBufPool = sync.Pool{
 	New: func() any {
 		b := make([]byte, copyBufSize)
@@ -70,6 +78,7 @@ type targetState struct {
 	listener    net.Listener
 	lastActive  time.Time
 	activeConns atomic.Int32
+	idleTimeout *time.Duration // nil = use server default
 	running     bool
 	removed     bool
 }
@@ -201,6 +210,7 @@ func (s *ProxyServer) RegisterTarget(info docker.TargetInfo) {
 		if existing, ok := s.targets[m.ListenPort]; ok {
 			existing.info = info
 			existing.targetPort = m.TargetPort
+			existing.idleTimeout = info.IdleTimeout
 			existing.running = info.Running
 			existing.removed = false
 			log.Printf("proxy: updated TCP target \033[33m%s\033[0m on port %d->%d", info.ContainerName, m.ListenPort, m.TargetPort)
@@ -214,11 +224,12 @@ func (s *ProxyServer) RegisterTarget(info docker.TargetInfo) {
 		}
 
 		ts := &targetState{
-			info:       info,
-			targetPort: m.TargetPort,
-			listener:   ln,
-			lastActive: time.Time{}, // zero — immediately idle
-			running:    info.Running,
+			info:        info,
+			targetPort:  m.TargetPort,
+			listener:    ln,
+			lastActive:  time.Time{}, // zero — immediately idle
+			idleTimeout: info.IdleTimeout,
+			running:     info.Running,
 		}
 		s.targets[m.ListenPort] = ts
 		log.Printf("proxy: registered target \033[33m%s\033[0m, TCP %d->%d", info.ContainerName, m.ListenPort, m.TargetPort)
@@ -230,6 +241,7 @@ func (s *ProxyServer) RegisterTarget(info docker.TargetInfo) {
 		if existing, ok := s.udpTargets[m.ListenPort]; ok {
 			existing.info = info
 			existing.targetPort = m.TargetPort
+			existing.idleTimeout = info.IdleTimeout
 			existing.running = info.Running
 			existing.removed = false
 			log.Printf("proxy: updated UDP target \033[33m%s\033[0m on port %d->%d", info.ContainerName, m.ListenPort, m.TargetPort)
@@ -242,12 +254,13 @@ func (s *ProxyServer) RegisterTarget(info docker.TargetInfo) {
 			continue
 		}
 		uls := &udpListenerState{
-			listenConn: pc.(*net.UDPConn),
-			targetPort: m.TargetPort,
-			info:       info,
-			running:    info.Running,
-			flows:      make(map[string]*udpFlow),
-			pending:    make(map[string]bool),
+			listenConn:  pc.(*net.UDPConn),
+			targetPort:  m.TargetPort,
+			info:        info,
+			idleTimeout: info.IdleTimeout,
+			running:     info.Running,
+			flows:       make(map[string]*udpFlow),
+			pending:     make(map[string]bool),
 		}
 		s.udpTargets[m.ListenPort] = uls
 		log.Printf("proxy: registered target \033[33m%s\033[0m, UDP %d->%d", info.ContainerName, m.ListenPort, m.TargetPort)
@@ -348,7 +361,8 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 			byContainer[ts.info.ContainerID] = e
 		}
 		e.tcpStates = append(e.tcpStates, ts)
-		if !ts.running || ts.activeConns.Load() > 0 || time.Since(ts.lastActive) < s.idleTimeout {
+		eff := effectiveTimeout(ts.idleTimeout, s.idleTimeout)
+		if !ts.running || ts.activeConns.Load() > 0 || time.Since(ts.lastActive) < eff {
 			e.allIdle = false
 		}
 	}
@@ -367,7 +381,8 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 		activeFlows := len(uls.flows) + len(uls.pending)
 		lastActive := uls.lastActive
 		uls.mu.Unlock()
-		if !uls.running || activeFlows > 0 || time.Since(lastActive) < s.idleTimeout {
+		eff := effectiveTimeout(uls.idleTimeout, s.idleTimeout)
+		if !uls.running || activeFlows > 0 || time.Since(lastActive) < eff {
 			e.allIdle = false
 		}
 	}
@@ -447,8 +462,14 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 	ts.activeConns.Add(1)
 	defer func() {
 		if ts.activeConns.Add(-1) == 0 {
-			log.Printf("proxy: last connection to \033[33m%s\033[0m closed; idle timer started (container will stop in ~%s if no new connections)",
-				ts.info.ContainerName, s.idleTimeout)
+			eff := effectiveTimeout(ts.idleTimeout, s.idleTimeout)
+			if eff == 0 {
+				log.Printf("proxy: last connection to \033[33m%s\033[0m closed; idle timer started (container will stop immediately if no new connections)",
+					ts.info.ContainerName)
+			} else {
+				log.Printf("proxy: last connection to \033[33m%s\033[0m closed; idle timer started (container will stop in ~%s if no new connections)",
+					ts.info.ContainerName, eff)
+			}
 			go debug.FreeOSMemory()
 		}
 	}()

@@ -31,10 +31,11 @@ type TargetInfo struct {
 	Ports         []PortMapping
 	UDPPorts      []PortMapping
 	NetworkIDs    []string
-	AllowList     []net.IPNet // empty = no restriction (all IPs allowed)
-	BlockList     []net.IPNet // empty = no restriction (no IPs blocked)
-	Running       bool        // true if the container was running at the time of inspection
-	WebhookURL    string      // empty = no webhook
+	AllowList     []net.IPNet    // empty = no restriction (all IPs allowed)
+	BlockList     []net.IPNet    // empty = no restriction (no IPs blocked)
+	IdleTimeout   *time.Duration // nil = use global default; non-nil (incl. 0) = per-container override
+	Running       bool           // true if the container was running at the time of inspection
+	WebhookURL    string         // empty = no webhook
 }
 
 // parsePortMappings tokenises a comma-separated "<listen>:<target>" string into
@@ -256,6 +257,17 @@ func (m *Manager) containerToTargetInfo(ctx context.Context, containerID string)
 		blockList = parseIPList("lazy-tcp-proxy.block-list", v)
 	}
 
+	var idleTimeout *time.Duration
+	if v, ok := inspect.Config.Labels["lazy-tcp-proxy.idle-timeout-secs"]; ok && strings.TrimSpace(v) != "" {
+		n, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil || n < 0 {
+			log.Printf("docker: container %s: ignoring invalid idle-timeout-secs %q", name, v)
+		} else {
+			d := time.Duration(n) * time.Second
+			idleTimeout = &d
+		}
+	}
+
 	var webhookURL string
 	if v := strings.TrimSpace(inspect.Config.Labels["lazy-tcp-proxy.webhook-url"]); v != "" {
 		if _, err := url.ParseRequestURI(v); err != nil {
@@ -273,6 +285,7 @@ func (m *Manager) containerToTargetInfo(ctx context.Context, containerID string)
 		NetworkIDs:    networkIDs,
 		AllowList:     allowList,
 		BlockList:     blockList,
+		IdleTimeout:   idleTimeout,
 		Running:       inspect.State.Running,
 		WebhookURL:    webhookURL,
 	}, nil
