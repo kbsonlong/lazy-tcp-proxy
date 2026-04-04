@@ -90,6 +90,23 @@ func parseIPList(label, s string) []net.IPNet {
 	return nets
 }
 
+// parseIdleTimeoutLabel converts a raw label value to a *time.Duration.
+// Returns nil if the value is absent, empty, non-numeric, or negative.
+// Zero is valid and means "stop immediately when all connections close".
+func parseIdleTimeoutLabel(name, raw string) *time.Duration {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		log.Printf("docker: container %s: ignoring invalid idle-timeout-secs %q", name, raw)
+		return nil
+	}
+	d := time.Duration(n) * time.Second
+	return &d
+}
+
 // TargetHandler is implemented by the proxy server to receive container updates.
 type TargetHandler interface {
 	RegisterTarget(info TargetInfo)
@@ -257,16 +274,7 @@ func (m *Manager) containerToTargetInfo(ctx context.Context, containerID string)
 		blockList = parseIPList("lazy-tcp-proxy.block-list", v)
 	}
 
-	var idleTimeout *time.Duration
-	if v, ok := inspect.Config.Labels["lazy-tcp-proxy.idle-timeout-secs"]; ok && strings.TrimSpace(v) != "" {
-		n, err := strconv.Atoi(strings.TrimSpace(v))
-		if err != nil || n < 0 {
-			log.Printf("docker: container %s: ignoring invalid idle-timeout-secs %q", name, v)
-		} else {
-			d := time.Duration(n) * time.Second
-			idleTimeout = &d
-		}
-	}
+	idleTimeout := parseIdleTimeoutLabel(name, inspect.Config.Labels["lazy-tcp-proxy.idle-timeout-secs"])
 
 	var webhookURL string
 	if v := strings.TrimSpace(inspect.Config.Labels["lazy-tcp-proxy.webhook-url"]); v != "" {
