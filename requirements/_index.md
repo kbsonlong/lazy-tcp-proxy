@@ -41,3 +41,4 @@
 | REQ-037 | Per-Container Idle Timeout Label Override         | Medium | Completed   | 2026-04-03 | [2026-04-03-idle-timeout-label-override.md](2026-04-03-idle-timeout-label-override.md) |
 | REQ-038 | Kubernetes Backend (BACKEND=kubernetes)           | High   | Completed   | 2026-04-04 | [2026-04-04-kubernetes-backend.md](2026-04-04-kubernetes-backend.md) |
 | REQ-039 | Reorganise Example Directory (docker/ subdir)     | Low    | Completed   | 2026-04-04 | [2026-04-04-reorganise-example-dir.md](2026-04-04-reorganise-example-dir.md) |
+| REQ-040 | Example README Files (Docker and Kubernetes)      | Low    | Completed   | 2026-04-05 | [2026-04-05-example-readmes.md](2026-04-05-example-readmes.md) |
