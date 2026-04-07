@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mountain-pass/lazy-tcp-proxy/internal/docker"
+	"github.com/mountain-pass/lazy-tcp-proxy/internal/types"
 )
 
 // ---- effectiveTimeout ----
@@ -38,14 +38,14 @@ func TestEffectiveTimeout_ZeroOverride(t *testing.T) {
 // ---- ipBlocked ----
 
 func TestIPBlocked_NoLists(t *testing.T) {
-	info := docker.TargetInfo{} // empty allow/block lists
+	info := types.TargetInfo{} // empty allow/block lists
 	if ipBlocked("10.0.0.1:1234", info) {
 		t.Error("expected not blocked with no lists")
 	}
 }
 
 func TestIPBlocked_AllowList_MatchAllows(t *testing.T) {
-	info := docker.TargetInfo{
+	info := types.TargetInfo{
 		AllowList: mustParseNets("192.168.0.0/16"),
 	}
 	if ipBlocked("192.168.1.100:1234", info) {
@@ -54,7 +54,7 @@ func TestIPBlocked_AllowList_MatchAllows(t *testing.T) {
 }
 
 func TestIPBlocked_AllowList_NoMatchBlocks(t *testing.T) {
-	info := docker.TargetInfo{
+	info := types.TargetInfo{
 		AllowList: mustParseNets("192.168.0.0/16"),
 	}
 	if !ipBlocked("10.0.0.1:1234", info) {
@@ -63,7 +63,7 @@ func TestIPBlocked_AllowList_NoMatchBlocks(t *testing.T) {
 }
 
 func TestIPBlocked_BlockList_MatchBlocks(t *testing.T) {
-	info := docker.TargetInfo{
+	info := types.TargetInfo{
 		BlockList: mustParseNets("10.0.0.1"),
 	}
 	if !ipBlocked("10.0.0.1:1234", info) {
@@ -72,7 +72,7 @@ func TestIPBlocked_BlockList_MatchBlocks(t *testing.T) {
 }
 
 func TestIPBlocked_BlockList_NoMatchAllows(t *testing.T) {
-	info := docker.TargetInfo{
+	info := types.TargetInfo{
 		BlockList: mustParseNets("10.0.0.1"),
 	}
 	if ipBlocked("10.0.0.2:1234", info) {
@@ -81,8 +81,7 @@ func TestIPBlocked_BlockList_NoMatchAllows(t *testing.T) {
 }
 
 func TestIPBlocked_BlockListEvaluatedAfterAllowList(t *testing.T) {
-	// IP passes allow-list check, but block-list is evaluated next and wins.
-	info := docker.TargetInfo{
+	info := types.TargetInfo{
 		AllowList: mustParseNets("10.0.0.0/8"),
 		BlockList: mustParseNets("10.0.0.1"),
 	}
@@ -92,8 +91,7 @@ func TestIPBlocked_BlockListEvaluatedAfterAllowList(t *testing.T) {
 }
 
 func TestIPBlocked_NotInAllowList_BlockListNotEvaluated(t *testing.T) {
-	// IP is not in allow-list → blocked immediately, block-list irrelevant.
-	info := docker.TargetInfo{
+	info := types.TargetInfo{
 		AllowList: mustParseNets("192.168.0.0/16"),
 		BlockList: mustParseNets("10.0.0.1"),
 	}
@@ -103,15 +101,14 @@ func TestIPBlocked_NotInAllowList_BlockListNotEvaluated(t *testing.T) {
 }
 
 func TestIPBlocked_UnparsableAddr(t *testing.T) {
-	info := docker.TargetInfo{BlockList: mustParseNets("10.0.0.1")}
-	// Malformed address — should not block (fail open)
+	info := types.TargetInfo{BlockList: mustParseNets("10.0.0.1")}
 	if ipBlocked("not-an-addr", info) {
 		t.Error("unparsable address should not be blocked")
 	}
 }
 
 func TestIPBlocked_IPv6(t *testing.T) {
-	info := docker.TargetInfo{
+	info := types.TargetInfo{
 		BlockList: mustParseNets("::1"),
 	}
 	if !ipBlocked("[::1]:1234", info) {
@@ -133,7 +130,7 @@ func TestSnapshot_Fields(t *testing.T) {
 	s := newTestServer()
 	now := time.Now()
 	ts := &targetState{
-		info: docker.TargetInfo{
+		info: types.TargetInfo{
 			ContainerID:   strings.Repeat("a", 64),
 			ContainerName: "my-service",
 		},
@@ -178,7 +175,7 @@ func TestSnapshot_Fields(t *testing.T) {
 func TestSnapshot_NeverActiveFallsBackToStartTime(t *testing.T) {
 	s := newTestServer()
 	s.targets[9000] = &targetState{
-		info:       docker.TargetInfo{ContainerID: "abc123"},
+		info:       types.TargetInfo{ContainerID: "abc123"},
 		targetPort: 80,
 		lastActive: time.Time{}, // zero — never active
 	}
@@ -199,9 +196,7 @@ func TestSnapshot_NeverActiveFallsBackToStartTime(t *testing.T) {
 func TestRegisterTarget_TCPPortConflict(t *testing.T) {
 	s := newTestServer()
 
-	// Pre-populate a fake TCP listener for container A on port 9000.
-	// Use a real listener so the port is actually held.
-	ln, err := net.Listen("tcp", ":0") // OS-assigned port
+	ln, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatalf("could not open test listener: %v", err)
 	}
@@ -209,18 +204,16 @@ func TestRegisterTarget_TCPPortConflict(t *testing.T) {
 	listenPort := ln.Addr().(*net.TCPAddr).Port
 
 	s.targets[listenPort] = &targetState{
-		info:     docker.TargetInfo{ContainerID: "container-a", ContainerName: "svc-a"},
+		info:     types.TargetInfo{ContainerID: "container-a", ContainerName: "svc-a"},
 		listener: ln,
 	}
 
-	// Container B tries to register on the same port — should be rejected.
-	s.RegisterTarget(docker.TargetInfo{
+	s.RegisterTarget(types.TargetInfo{
 		ContainerID:   "container-b",
 		ContainerName: "svc-b",
-		Ports:         []docker.PortMapping{{ListenPort: listenPort, TargetPort: 80}},
+		Ports:         []types.PortMapping{{ListenPort: listenPort, TargetPort: 80}},
 	})
 
-	// Container A's entry must still be there, not overwritten.
 	if s.targets[listenPort].info.ContainerID != "container-a" {
 		t.Error("conflict: container-a's registration should not have been replaced")
 	}
@@ -229,7 +222,6 @@ func TestRegisterTarget_TCPPortConflict(t *testing.T) {
 func TestRegisterTarget_UDPPortConflict(t *testing.T) {
 	s := newTestServer()
 
-	// Pre-populate a fake UDP listener for container A.
 	pc, err := net.ListenPacket("udp", ":0")
 	if err != nil {
 		t.Fatalf("could not open test UDP listener: %v", err)
@@ -239,15 +231,14 @@ func TestRegisterTarget_UDPPortConflict(t *testing.T) {
 
 	s.udpTargets[listenPort] = &udpListenerState{
 		listenConn: pc.(*net.UDPConn),
-		info:       docker.TargetInfo{ContainerID: "container-a", ContainerName: "svc-a"},
+		info:       types.TargetInfo{ContainerID: "container-a", ContainerName: "svc-a"},
 	}
 
-	// Container B tries to register on the same UDP port — should be rejected.
-	s.RegisterTarget(docker.TargetInfo{
+	s.RegisterTarget(types.TargetInfo{
 		ContainerID:   "container-b",
 		ContainerName: "svc-b",
-		Ports:         []docker.PortMapping{{ListenPort: 19999, TargetPort: 80}}, // different TCP port
-		UDPPorts:      []docker.PortMapping{{ListenPort: listenPort, TargetPort: 53}},
+		Ports:         []types.PortMapping{{ListenPort: 19999, TargetPort: 80}},
+		UDPPorts:      []types.PortMapping{{ListenPort: listenPort, TargetPort: 53}},
 	})
 
 	if s.udpTargets[listenPort].info.ContainerID != "container-a" {
@@ -261,9 +252,8 @@ func TestCheckInactivity_StopsIdleContainer(t *testing.T) {
 	stopped := make(chan string, 1)
 	s := newTestServerWithStopper(func(id string) { stopped <- id })
 
-	// One TCP mapping, running, no active conns, lastActive long ago.
 	s.targets[9000] = &targetState{
-		info:       docker.TargetInfo{ContainerID: "ctr-1", ContainerName: "svc"},
+		info:       types.TargetInfo{ContainerID: "ctr-1", ContainerName: "svc"},
 		targetPort: 80,
 		running:    true,
 		lastActive: time.Now().Add(-10 * time.Minute),
@@ -286,7 +276,7 @@ func TestCheckInactivity_DoesNotStopActiveConnections(t *testing.T) {
 	s := newTestServerWithStopper(func(id string) { stopped <- id })
 
 	ts := &targetState{
-		info:       docker.TargetInfo{ContainerID: "ctr-1", ContainerName: "svc"},
+		info:       types.TargetInfo{ContainerID: "ctr-1", ContainerName: "svc"},
 		targetPort: 80,
 		running:    true,
 		lastActive: time.Now().Add(-10 * time.Minute),
@@ -308,10 +298,10 @@ func TestCheckInactivity_DoesNotStopRecentlyActive(t *testing.T) {
 	s := newTestServerWithStopper(func(id string) { stopped <- id })
 
 	s.targets[9000] = &targetState{
-		info:       docker.TargetInfo{ContainerID: "ctr-1", ContainerName: "svc"},
+		info:       types.TargetInfo{ContainerID: "ctr-1", ContainerName: "svc"},
 		targetPort: 80,
 		running:    true,
-		lastActive: time.Now(), // just active
+		lastActive: time.Now(),
 	}
 
 	s.checkInactivity(context.Background())
@@ -328,9 +318,9 @@ func TestCheckInactivity_DoesNotStopAlreadyStopped(t *testing.T) {
 	s := newTestServerWithStopper(func(id string) { stopped <- id })
 
 	s.targets[9000] = &targetState{
-		info:       docker.TargetInfo{ContainerID: "ctr-1", ContainerName: "svc"},
+		info:       types.TargetInfo{ContainerID: "ctr-1", ContainerName: "svc"},
 		targetPort: 80,
-		running:    false, // already stopped
+		running:    false,
 		lastActive: time.Now().Add(-10 * time.Minute),
 	}
 
@@ -347,8 +337,7 @@ func TestCheckInactivity_MultiPortAllIdleStops(t *testing.T) {
 	stopped := make(chan string, 1)
 	s := newTestServerWithStopper(func(id string) { stopped <- id })
 
-	// Same container on two ports — both idle.
-	info := docker.TargetInfo{ContainerID: "ctr-1", ContainerName: "svc"}
+	info := types.TargetInfo{ContainerID: "ctr-1", ContainerName: "svc"}
 	for _, port := range []int{9000, 9001} {
 		s.targets[port] = &targetState{
 			info:       info,
@@ -374,15 +363,13 @@ func TestCheckInactivity_MultiPortOneActiveDoesNotStop(t *testing.T) {
 	stopped := make(chan string, 1)
 	s := newTestServerWithStopper(func(id string) { stopped <- id })
 
-	info := docker.TargetInfo{ContainerID: "ctr-1", ContainerName: "svc"}
-	// Port 9000: idle
+	info := types.TargetInfo{ContainerID: "ctr-1", ContainerName: "svc"}
 	s.targets[9000] = &targetState{
 		info:       info,
 		targetPort: 80,
 		running:    true,
 		lastActive: time.Now().Add(-10 * time.Minute),
 	}
-	// Port 9001: active connection
 	ts := &targetState{
 		info:       info,
 		targetPort: 8080,
@@ -405,12 +392,11 @@ func TestCheckInactivity_UDPIdleWithNoTCPStops(t *testing.T) {
 	stopped := make(chan string, 1)
 	s := newTestServerWithStopper(func(id string) { stopped <- id })
 
-	// UDP-only container, idle.
 	pc, _ := net.ListenPacket("udp", ":0")
 	defer pc.Close() //nolint:errcheck
 	s.udpTargets[5353] = &udpListenerState{
 		listenConn: pc.(*net.UDPConn),
-		info:       docker.TargetInfo{ContainerID: "ctr-udp", ContainerName: "dns"},
+		info:       types.TargetInfo{ContainerID: "ctr-udp", ContainerName: "dns"},
 		running:    true,
 		lastActive: time.Now().Add(-10 * time.Minute),
 		flows:      make(map[string]*udpFlow),
@@ -430,14 +416,12 @@ func TestCheckInactivity_UDPIdleWithNoTCPStops(t *testing.T) {
 }
 
 func TestCheckInactivity_PerContainerTimeout_ShortOverrideStops(t *testing.T) {
-	// Global timeout = 5 min, per-container = 10s.
-	// lastActive = 1 minute ago → past per-container timeout → should stop.
 	stopped := make(chan string, 1)
 	s := newTestServerWithStopper(func(id string) { stopped <- id })
 
 	override := 10 * time.Second
 	s.targets[9000] = &targetState{
-		info:        docker.TargetInfo{ContainerID: "ctr-1", ContainerName: "svc"},
+		info:        types.TargetInfo{ContainerID: "ctr-1", ContainerName: "svc"},
 		targetPort:  80,
 		running:     true,
 		lastActive:  time.Now().Add(-1 * time.Minute),
@@ -457,14 +441,12 @@ func TestCheckInactivity_PerContainerTimeout_ShortOverrideStops(t *testing.T) {
 }
 
 func TestCheckInactivity_PerContainerTimeout_LongOverrideDoesNotStop(t *testing.T) {
-	// Global timeout = 5 min, per-container = 10 min.
-	// lastActive = 6 minutes ago → past global but within per-container → should NOT stop.
 	stopped := make(chan string, 1)
 	s := newTestServerWithStopper(func(id string) { stopped <- id })
 
 	override := 10 * time.Minute
 	s.targets[9000] = &targetState{
-		info:        docker.TargetInfo{ContainerID: "ctr-1", ContainerName: "svc"},
+		info:        types.TargetInfo{ContainerID: "ctr-1", ContainerName: "svc"},
 		targetPort:  80,
 		running:     true,
 		lastActive:  time.Now().Add(-6 * time.Minute),
@@ -481,16 +463,15 @@ func TestCheckInactivity_PerContainerTimeout_LongOverrideDoesNotStop(t *testing.
 }
 
 func TestCheckInactivity_ZeroPerContainerTimeout_StopsImmediately(t *testing.T) {
-	// Per-container timeout = 0 → stop on next tick regardless of lastActive.
 	stopped := make(chan string, 1)
 	s := newTestServerWithStopper(func(id string) { stopped <- id })
 
 	zero := time.Duration(0)
 	s.targets[9000] = &targetState{
-		info:        docker.TargetInfo{ContainerID: "ctr-1", ContainerName: "svc"},
+		info:        types.TargetInfo{ContainerID: "ctr-1", ContainerName: "svc"},
 		targetPort:  80,
 		running:     true,
-		lastActive:  time.Now(), // just active — doesn't matter with timeout=0
+		lastActive:  time.Now(),
 		idleTimeout: &zero,
 	}
 
@@ -510,9 +491,8 @@ func TestCheckInactivity_TCPIdleButUDPActiveDoesNotStop(t *testing.T) {
 	stopped := make(chan string, 1)
 	s := newTestServerWithStopper(func(id string) { stopped <- id })
 
-	info := docker.TargetInfo{ContainerID: "ctr-1", ContainerName: "svc"}
+	info := types.TargetInfo{ContainerID: "ctr-1", ContainerName: "svc"}
 
-	// TCP: idle
 	s.targets[9000] = &targetState{
 		info:       info,
 		targetPort: 80,
@@ -520,7 +500,6 @@ func TestCheckInactivity_TCPIdleButUDPActiveDoesNotStop(t *testing.T) {
 		lastActive: time.Now().Add(-10 * time.Minute),
 	}
 
-	// UDP: has an active flow
 	pc, _ := net.ListenPacket("udp", ":0")
 	defer pc.Close() //nolint:errcheck
 	uls := &udpListenerState{
@@ -546,16 +525,16 @@ func TestCheckInactivity_TCPIdleButUDPActiveDoesNotStop(t *testing.T) {
 
 // ---- helpers ----
 
-// mockDockerManager satisfies dockerManager for inactivity tests.
-type mockDockerManager struct {
+// mockBackend satisfies containerBackend for inactivity tests.
+type mockBackend struct {
 	stopFunc func(containerID string)
 }
 
-func (m *mockDockerManager) EnsureRunning(_ context.Context, _ string) error { return nil }
-func (m *mockDockerManager) GetContainerIP(_ context.Context, _, _ string) (string, error) {
+func (m *mockBackend) EnsureRunning(_ context.Context, _ string) error { return nil }
+func (m *mockBackend) GetUpstreamHost(_ context.Context, _, _ string) (string, error) {
 	return "", nil
 }
-func (m *mockDockerManager) StopContainer(_ context.Context, containerID, _ string) error {
+func (m *mockBackend) StopContainer(_ context.Context, containerID, _ string) error {
 	if m.stopFunc != nil {
 		m.stopFunc(containerID)
 	}
@@ -573,11 +552,9 @@ func newTestServer() *ProxyServer {
 	}
 }
 
-// newTestServerWithStopper returns a ProxyServer whose checkInactivity will
-// call stopFn instead of a real Docker API.
 func newTestServerWithStopper(stopFn func(id string)) *ProxyServer {
 	s := newTestServer()
-	s.docker = &mockDockerManager{stopFunc: stopFn}
+	s.backend = &mockBackend{stopFunc: stopFn}
 	return s
 }
 

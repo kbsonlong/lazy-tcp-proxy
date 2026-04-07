@@ -1,0 +1,71 @@
+---
+# Example: a simple nginx app managed by lazy-tcp-proxy.
+#
+# lazy-tcp-proxy discovers this Deployment via the label:
+#   lazy-tcp-proxy.enabled=true
+#
+# Configuration is read from annotations:
+#   lazy-tcp-proxy.ports          - "<proxy-listen-port>:<container-port>" (required)
+#   lazy-tcp-proxy.udp-ports      - UDP port mappings (optional)
+#   lazy-tcp-proxy.idle-timeout-secs - override global idle timeout (optional)
+#   lazy-tcp-proxy.service-name   - override Service name (default: Deployment name)
+#   lazy-tcp-proxy.allow-list     - comma-separated IPs/CIDRs to allow (optional)
+#   lazy-tcp-proxy.block-list     - comma-separated IPs/CIDRs to block (optional)
+#   lazy-tcp-proxy.webhook-url    - lifecycle event webhook (optional)
+#
+# The proxy starts this Deployment (scales 0→1) when a connection arrives on
+# port 9000, and scales it back to 0 after 120 seconds of inactivity.
+#
+# A Service named "example-app" must exist so the proxy can reach the pod by
+# DNS: example-app.default.svc.cluster.local
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: example-app
+  namespace: default
+  labels:
+    # Required: marks this Deployment for lazy-tcp-proxy discovery.
+    lazy-tcp-proxy.enabled: "true"
+  annotations:
+    # Required: proxy listen port 9000 → container port 80.
+    lazy-tcp-proxy.ports: "9000:80"
+    # Optional: stop after 5 minutes of inactivity instead of the global default.
+    lazy-tcp-proxy.idle-timeout-secs: "300"
+spec:
+  # Start scaled to zero — lazy-tcp-proxy will scale up on demand.
+  replicas: 0
+  selector:
+    matchLabels:
+      app: example-app
+  template:
+    metadata:
+      labels:
+        app: example-app
+    spec:
+      containers:
+        - name: example-app
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              memory: "16Mi"
+              cpu: "50m"
+            limits:
+              memory: "64Mi"
+              cpu: "200m"
+---
+# Service: exposes the Deployment inside the cluster.
+# The proxy connects via DNS: example-app.default.svc.cluster.local:80
+apiVersion: v1
+kind: Service
+metadata:
+  name: example-app
+  namespace: default
+spec:
+  selector:
+    app: example-app
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
