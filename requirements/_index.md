@@ -42,3 +42,4 @@
 | REQ-038 | Kubernetes Backend (BACKEND=kubernetes)           | High   | Completed   | 2026-04-04 | [2026-04-04-kubernetes-backend.md](2026-04-04-kubernetes-backend.md) |
 | REQ-039 | Reorganise Example Directory (docker/ subdir)     | Low    | Completed   | 2026-04-04 | [2026-04-04-reorganise-example-dir.md](2026-04-04-reorganise-example-dir.md) |
 | REQ-040 | Example README Files (Docker and Kubernetes)      | Low    | Completed   | 2026-04-05 | [2026-04-05-example-readmes.md](2026-04-05-example-readmes.md) |
+| REQ-041 | Webhook Connection Events (connection_started/ended) | Medium | Completed   | 2026-04-07 | [2026-04-07-webhook-connection-events.md](2026-04-07-webhook-connection-events.md) |
