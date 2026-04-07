@@ -27,6 +27,8 @@ type TargetInfo struct {
 	Running       bool           // true if the target was running at time of inspection
 	WebhookURL    string         // empty = no webhook
 	Dependants    []string       // names of managed targets to start/stop alongside this one
+	CronStart     string         // 5-field cron expression; "" = not scheduled
+	CronStop      string         // 5-field cron expression; "" = not scheduled
 }
 
 // TargetHandler is implemented by the proxy server to receive target updates.

@@ -17,6 +17,8 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
+	cron "github.com/robfig/cron/v3"
+
 	"github.com/mountain-pass/lazy-tcp-proxy/internal/types"
 )
 
@@ -281,6 +283,9 @@ func (b *Backend) deploymentToTargetInfo(d appsv1.Deployment) (types.TargetInfo,
 		dependants = types.ParseDependants(v)
 	}
 
+	cronStart := parseCronAnnotation(d.Name, "lazy-tcp-proxy.cron-start", ann["lazy-tcp-proxy.cron-start"])
+	cronStop := parseCronAnnotation(d.Name, "lazy-tcp-proxy.cron-stop", ann["lazy-tcp-proxy.cron-stop"])
+
 	return types.TargetInfo{
 		ContainerID:   d.Namespace + "/" + d.Name,
 		ContainerName: d.Name,
@@ -292,7 +297,23 @@ func (b *Backend) deploymentToTargetInfo(d appsv1.Deployment) (types.TargetInfo,
 		Running:       d.Status.ReadyReplicas > 0,
 		WebhookURL:    webhookURL,
 		Dependants:    dependants,
+		CronStart:     cronStart,
+		CronStop:      cronStop,
 	}, nil
+}
+
+// parseCronAnnotation validates a cron expression from a Deployment annotation.
+// Returns the expression unchanged if valid, or "" with a warning if invalid.
+func parseCronAnnotation(deploymentName, annotationKey, raw string) string {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return ""
+	}
+	if _, err := cron.ParseStandard(v); err != nil {
+		log.Printf("k8s: deployment %s: ignoring invalid %s %q: %v", deploymentName, annotationKey, v, err)
+		return ""
+	}
+	return v
 }
 
 // storeServiceName caches the optional service-name annotation for a target.

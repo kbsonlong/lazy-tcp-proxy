@@ -121,6 +121,13 @@ type containerBackend interface {
 	GetUpstreamHost(ctx context.Context, targetID, hint string) (string, error)
 }
 
+// cronScheduler is the subset of scheduler methods used by ProxyServer.
+// Defined as an interface so proxy does not import the scheduler package.
+type cronScheduler interface {
+	Register(info types.TargetInfo)
+	Unregister(targetID string)
+}
+
 // ProxyServer manages TCP listeners and proxies connections to targets.
 type ProxyServer struct {
 	backend       containerBackend
@@ -133,6 +140,7 @@ type ProxyServer struct {
 	idleTimeout   time.Duration
 	startTime     time.Time
 	webhookClient *http.Client
+	sched         cronScheduler // nil if no scheduler configured
 }
 
 // NewServer creates a new ProxyServer backed by the given backend.
@@ -148,6 +156,124 @@ func NewServer(ctx context.Context, b containerBackend, startTime time.Time, idl
 		startTime:     startTime,
 		webhookClient: &http.Client{Timeout: 5 * time.Second},
 	}
+}
+
+// SetScheduler injects the cron scheduler. Must be called before Discover.
+func (s *ProxyServer) SetScheduler(sched cronScheduler) {
+	s.sched = sched
+}
+
+// CronStart is called by the scheduler to start a target on its cron-start schedule.
+// It is a no-op (with a log) if the target is already running.
+func (s *ProxyServer) CronStart(ctx context.Context, targetID, targetName string) {
+	s.mu.RLock()
+	running, found := s.isRunning(targetID)
+	s.mu.RUnlock()
+	if !found {
+		log.Printf("scheduler: cron-start: \033[33m%s\033[0m not found, skipping", targetName)
+		return
+	}
+	if running {
+		log.Printf("scheduler: cron-start: \033[33m%s\033[0m already running, no action", targetName)
+		return
+	}
+	if err := s.backend.EnsureRunning(ctx, targetID); err != nil {
+		log.Printf("scheduler: cron-start: failed to start \033[33m%s\033[0m: %v", targetName, err)
+		return
+	}
+	s.mu.Lock()
+	for _, ts := range s.targets {
+		if ts.info.ContainerID == targetID {
+			ts.running = true
+		}
+	}
+	for _, uls := range s.udpTargets {
+		if uls.info.ContainerID == targetID {
+			uls.running = true
+		}
+	}
+	s.mu.Unlock()
+	log.Printf("scheduler: cron-start: started \033[33m%s\033[0m", targetName)
+
+	s.mu.RLock()
+	var info types.TargetInfo
+	for _, ts := range s.targets {
+		if ts.info.ContainerID == targetID {
+			info = ts.info
+			break
+		}
+	}
+	s.mu.RUnlock()
+	if info.WebhookURL != "" {
+		go s.fireWebhook(info.WebhookURL, "container_started", targetID, targetName, "", "", 0)
+	}
+	if len(info.Dependants) > 0 {
+		go s.cascadeStart(info)
+	}
+}
+
+// CronStop is called by the scheduler to stop a target on its cron-stop schedule.
+// It is a no-op (with a log) if the target is already stopped.
+func (s *ProxyServer) CronStop(ctx context.Context, targetID, targetName string) {
+	s.mu.RLock()
+	running, found := s.isRunning(targetID)
+	s.mu.RUnlock()
+	if !found {
+		log.Printf("scheduler: cron-stop: \033[33m%s\033[0m not found, skipping", targetName)
+		return
+	}
+	if !running {
+		log.Printf("scheduler: cron-stop: \033[33m%s\033[0m already stopped, no action", targetName)
+		return
+	}
+	if err := s.backend.StopContainer(ctx, targetID, targetName); err != nil {
+		log.Printf("scheduler: cron-stop: failed to stop \033[33m%s\033[0m: %v", targetName, err)
+		return
+	}
+	s.mu.Lock()
+	var info types.TargetInfo
+	for _, ts := range s.targets {
+		if ts.info.ContainerID == targetID {
+			ts.running = false
+			info = ts.info
+		}
+	}
+	for _, uls := range s.udpTargets {
+		if uls.info.ContainerID == targetID {
+			uls.running = false
+			info = uls.info
+		}
+	}
+	s.mu.Unlock()
+	log.Printf("scheduler: cron-stop: stopped \033[33m%s\033[0m", targetName)
+	if info.WebhookURL != "" {
+		go s.fireWebhook(info.WebhookURL, "container_stopped", targetID, targetName, "", "", 0)
+	}
+	if len(info.Dependants) > 0 {
+		go s.cascadeStop(info)
+	}
+}
+
+// isRunning reports whether any mapping for targetID is running.
+// Caller must hold s.mu (at least RLock).
+func (s *ProxyServer) isRunning(targetID string) (running, found bool) {
+	for _, ts := range s.targets {
+		if ts.info.ContainerID == targetID {
+			found = true
+			if ts.running {
+				running = true
+			}
+		}
+	}
+	for _, uls := range s.udpTargets {
+		if uls.info.ContainerID == targetID {
+			found = true
+			if uls.running {
+				running = true
+			}
+		}
+	}
+	return
 }
 
 // Snapshot returns a point-in-time copy of all registered targets.
@@ -305,6 +431,11 @@ func (s *ProxyServer) RegisterTarget(info types.TargetInfo) {
 
 	// Keep name→ID map current for cascade lookups.
 	s.nameToID[info.ContainerName] = info.ContainerID
+
+	// Register with cron scheduler if any schedule is set.
+	if s.sched != nil && (info.CronStart != "" || info.CronStop != "") {
+		s.sched.Register(info)
+	}
 }
 
 // RemoveTarget closes and removes all listeners for the given container.
@@ -333,6 +464,9 @@ func (s *ProxyServer) RemoveTarget(containerID string) {
 			}
 			delete(s.udpTargets, port)
 		}
+	}
+	if s.sched != nil {
+		s.sched.Unregister(containerID)
 	}
 }
 
@@ -418,6 +552,9 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 		if ts.removed {
 			continue
 		}
+		if ts.info.CronStart != "" || ts.info.CronStop != "" {
+			continue // lifecycle managed by cron scheduler
+		}
 		e, ok := byContainer[ts.info.ContainerID]
 		if !ok {
 			e = &entry{containerID: ts.info.ContainerID, name: ts.info.ContainerName, webhookURL: ts.info.WebhookURL, info: ts.info, allIdle: true}
@@ -433,6 +570,9 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 	for _, uls := range udpSnap {
 		if uls.removed {
 			continue
+		}
+		if uls.info.CronStart != "" || uls.info.CronStop != "" {
+			continue // lifecycle managed by cron scheduler
 		}
 		e, ok := byContainer[uls.info.ContainerID]
 		if !ok {

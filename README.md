@@ -63,6 +63,8 @@ Add these labels to any container you want proxied/managed:
 | `lazy-tcp-proxy.idle-timeout-secs` | No | Override the global `IDLE_TIMEOUT_SECS` for this container only (seconds). `0` = stop immediately when the last connection closes |
 | `lazy-tcp-proxy.webhook-url` | No | HTTP(S) URL to POST lifecycle events to (see [Webhooks](#webhooks)) |
 | `lazy-tcp-proxy.dependants` | No | Comma-separated names of other managed containers/deployments that should start and stop alongside this one (see [Dependency Cascade](#dependency-cascade)) |
+| `lazy-tcp-proxy.cron-start` | No | 5-field cron expression — start the container/deployment on this schedule (see [Cron Scheduling](#cron-scheduling)) |
+| `lazy-tcp-proxy.cron-stop` | No | 5-field cron expression — stop the container/deployment on this schedule (see [Cron Scheduling](#cron-scheduling)) |
 
 \* At least one of `lazy-tcp-proxy.ports` or `lazy-tcp-proxy.udp-ports` must be set. A container may use TCP only, UDP only, or both.
 
@@ -229,6 +231,67 @@ labels:
   - "lazy-tcp-proxy.ports=9000:80"
   - "lazy-tcp-proxy.webhook-url=https://hooks.example.com/my-service"
 ```
+
+---
+
+## Cron Scheduling
+
+Use `lazy-tcp-proxy.cron-start` and `lazy-tcp-proxy.cron-stop` to start and stop a container (or Kubernetes Deployment) on a fixed schedule. Both labels accept a standard **5-field cron expression** (`minute hour day-of-month month day-of-week`).
+
+Either label may be set independently — you do not need both.
+
+> **Note:** Containers with either cron label are **exempt from the idle-timeout inactivity checker**. They manage their own lifecycle via the schedule. The idle timer is still active for all other containers.
+
+**Docker example — business hours only (Mon–Fri, 08:30–17:30):**
+
+```yaml
+services:
+  my-db:
+    image: postgres:16
+    labels:
+      lazy-tcp-proxy.enabled: "true"
+      lazy-tcp-proxy.ports: "5432:5432"
+      lazy-tcp-proxy.cron-start: "30 8 * * 1-5"   # Start Mon–Fri at 08:30
+      lazy-tcp-proxy.cron-stop:  "30 17 * * 1-5"  # Stop  Mon–Fri at 17:30
+```
+
+**Kubernetes example:**
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-db
+  annotations:
+    lazy-tcp-proxy.enabled: "true"
+    lazy-tcp-proxy.ports: "5432:5432"
+    lazy-tcp-proxy.cron-start: "30 8 * * 1-5"   # Start Mon–Fri at 08:30
+    lazy-tcp-proxy.cron-stop:  "30 17 * * 1-5"  # Stop  Mon–Fri at 17:30
+```
+
+**Cron expression reference:**
+
+```
+┌─────────── minute        (0–59)
+│ ┌───────── hour          (0–23)
+│ │ ┌─────── day of month  (1–31)
+│ │ │ ┌───── month         (1–12)
+│ │ │ │ ┌─── day of week   (0–6, Sunday=0)
+│ │ │ │ │
+* * * * *
+```
+
+Common examples:
+
+| Expression | Meaning |
+|------------|---------|
+| `30 8 * * 1-5` | 08:30 every weekday |
+| `0 22 * * *` | 22:00 every day |
+| `0 0 1 * *` | Midnight on the 1st of each month |
+
+Schedules fire in the proxy's local timezone (UTC by default; set the `TZ` environment variable to override, e.g. `TZ=America/New_York`).
+
+If the container is already in the desired state when a schedule fires (e.g. already running when `cron-start` triggers), the proxy logs the fact and takes no action.
 
 ---
 

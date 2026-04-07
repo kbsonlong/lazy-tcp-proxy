@@ -49,3 +49,4 @@
 | REQ-045 | Dependency Cascade (lazy-tcp-proxy.dependants)    | Medium | Completed   | 2026-04-07 | [2026-04-07-docker-dependency-cascade.md](2026-04-07-docker-dependency-cascade.md) |
 | REQ-046 | UDP Flow Webhook Events & Rename TCP Event Names  | Medium | Completed   | 2026-04-07 | [2026-04-07-webhook-udp-flow-events.md](2026-04-07-webhook-udp-flow-events.md) |
 | REQ-047 | Fix Slow Cross-Platform Docker Build (QEMU → Native Cross-Compilation) | Medium | Completed | 2026-04-07 | [2026-04-07-fix-slow-cross-platform-docker-build.md](2026-04-07-fix-slow-cross-platform-docker-build.md) |
+| REQ-048 | Cron-Based Scheduling (Docker & Kubernetes)       | Medium | Completed   | 2026-04-07 | [2026-04-06-cron-scheduling.md](2026-04-06-cron-scheduling.md) |

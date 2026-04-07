@@ -17,6 +17,7 @@ import (
 	"github.com/moby/moby/api/types/events"
 	"github.com/moby/moby/client"
 	"github.com/mountain-pass/lazy-tcp-proxy/internal/types"
+	cron "github.com/robfig/cron/v3"
 )
 
 // Manager wraps the Docker client with proxy-specific logic.
@@ -199,6 +200,9 @@ func (m *Manager) containerToTargetInfo(ctx context.Context, containerID string)
 		dependants = types.ParseDependants(v)
 	}
 
+	cronStart := parseCronLabel(name, "lazy-tcp-proxy.cron-start", inspect.Config.Labels["lazy-tcp-proxy.cron-start"])
+	cronStop := parseCronLabel(name, "lazy-tcp-proxy.cron-stop", inspect.Config.Labels["lazy-tcp-proxy.cron-stop"])
+
 	return types.TargetInfo{
 		ContainerID:   containerID,
 		ContainerName: name,
@@ -211,7 +215,23 @@ func (m *Manager) containerToTargetInfo(ctx context.Context, containerID string)
 		Running:       inspect.State.Running,
 		WebhookURL:    webhookURL,
 		Dependants:    dependants,
+		CronStart:     cronStart,
+		CronStop:      cronStop,
 	}, nil
+}
+
+// parseCronLabel validates a cron expression from a container label.
+// Returns the expression unchanged if valid, or "" with a warning if invalid.
+func parseCronLabel(containerName, labelKey, raw string) string {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return ""
+	}
+	if _, err := cron.ParseStandard(v); err != nil {
+		log.Printf("docker: container %s: ignoring invalid %s %q: %v", containerName, labelKey, v, err)
+		return ""
+	}
+	return v
 }
 
 // JoinNetworks connects the proxy container to each of the provided network IDs

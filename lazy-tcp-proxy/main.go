@@ -16,6 +16,7 @@ import (
 	"github.com/mountain-pass/lazy-tcp-proxy/internal/docker"
 	k8sbackend "github.com/mountain-pass/lazy-tcp-proxy/internal/k8s"
 	"github.com/mountain-pass/lazy-tcp-proxy/internal/proxy"
+	"github.com/mountain-pass/lazy-tcp-proxy/internal/scheduler"
 	"github.com/mountain-pass/lazy-tcp-proxy/internal/types"
 )
 
@@ -150,6 +151,13 @@ func main() {
 	tick := resolvePollInterval()
 	log.Printf("inactivity check interval: %s (set POLL_INTERVAL_SECS to override)", tick)
 	srv := proxy.NewServer(ctx, mgr, startTime, idleTimeout, tick)
+
+	// Create and wire the cron scheduler (must happen before Discover so that
+	// initial targets get their schedules registered).
+	sched := scheduler.New(ctx, srv)
+	srv.SetScheduler(sched)
+	sched.Start()
+	defer sched.Stop()
 
 	// Start the HTTP status server
 	statusPort := resolveStatusPort()
