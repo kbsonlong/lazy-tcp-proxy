@@ -170,14 +170,15 @@ labels:
 
 Containers can declare a webhook URL via the `lazy-tcp-proxy.webhook-url` label. The proxy will POST a JSON payload to that URL on the following events:
 
-| Event | When | `connection_id` present |
-|-------|------|------------------------|
-| `container_started` | Proxy successfully started the container on an inbound connection | No |
-| `container_stopped` | Proxy stopped the container due to idle timeout | No |
-| `connection_started` | An inbound TCP connection was accepted (after allow/block-list check) | Yes |
-| `connection_ended` | That TCP connection has closed | Yes |
+| Event | When | `connection_id` | `remote_addr` |
+|-------|------|-----------------|---------------|
+| `container_started` | Proxy successfully started the container on an inbound connection | No | No |
+| `container_stopped` | Proxy stopped the container due to idle timeout | No | No |
+| `connection_started` | An inbound TCP connection was accepted (after allow/block-list check) | Yes | Yes |
+| `connection_ended` | That TCP connection has closed | Yes | Yes |
 
-The `connection_id` field is a UUID v4 that uniquely identifies a single TCP connection. The same value appears in both `connection_started` and `connection_ended`, allowing external systems to correlate the two and calculate connection duration.
+- `connection_id` — UUID v4 uniquely identifying a single TCP connection. The same value appears in both `connection_started` and `connection_ended`, allowing external systems to correlate the pair and calculate duration.
+- `remote_addr` — the client's IP address (without port).
 
 **Container lifecycle payload** (`container_started` / `container_stopped`):
 ```json
@@ -194,6 +195,7 @@ The `connection_id` field is a UUID v4 that uniquely identifies a single TCP con
 {
   "event": "connection_started",
   "connection_id": "550e8400-e29b-41d4-a716-446655440000",
+  "remote_addr": "192.168.1.42",
   "container_id": "a1b2c3d4e5f6",
   "container_name": "my-service",
   "timestamp": "2026-04-01T12:34:56Z"
