@@ -6,17 +6,32 @@ env:
 scripts:
   clean:
     $cmd: |
-      docker compose down
-      docker rmi lazy-tcp-proxy
-      docker rmi mountainpass/lazy-tcp-proxy
+      docker compose -f recipes/docker-compose.lazy-tcp-proxy.yml down || true
+      docker stop lazy-tcp-proxy example-lazy-tcp-proxy || true
+      docker rm lazy-tcp-proxy example-lazy-tcp-proxy || true
+      docker rmi lazy-tcp-proxy || true
+      docker rmi mountainpass/lazy-tcp-proxy || true
 
   build:
     $cmd: |
-      docker compose down
-      docker rmi lazy-tcp-proxy
-      docker rmi mountainpass/lazy-tcp-proxy
-      docker compose build
-      docker compose up
+      docker compose -f recipes/docker-compose.lazy-tcp-proxy.yml down || true
+      docker stop lazy-tcp-proxy example-lazy-tcp-proxy || true
+      docker rm lazy-tcp-proxy example-lazy-tcp-proxy || true
+      docker rmi lazy-tcp-proxy || true
+      docker rmi mountainpass/lazy-tcp-proxy || true
+      docker build ./lazy-tcp-proxy/ -t lazy-tcp-proxy
+
+  up:
+    $cmd: |
+      docker run -d \
+        -v /var/run/docker.sock:/var/run/docker.sock \
+        -e IDLE_TIMEOUT_SECS=30 \
+        -e POLL_INTERVAL_SECS=5 \
+        -p "8080:8080" \
+        -p "9000-9099:9000-9099" \
+        --restart=always \
+        --name lazy-tcp-proxy \
+        lazy-tcp-proxy
 
   publish:
     $cmd: |

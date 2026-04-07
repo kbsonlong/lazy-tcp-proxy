@@ -29,8 +29,6 @@ metadata:
   annotations:
     # Required: proxy listen port 9000 → container port 80.
     lazy-tcp-proxy.ports: "9000:80"
-    # Optional: stop after 5 minutes of inactivity instead of the global default.
-    lazy-tcp-proxy.idle-timeout-secs: "300"
 spec:
   # Start scaled to zero — lazy-tcp-proxy will scale up on demand.
   replicas: 0
