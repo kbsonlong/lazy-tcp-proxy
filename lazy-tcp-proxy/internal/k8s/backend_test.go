@@ -88,6 +88,7 @@ type captureHandler struct {
 func (h *captureHandler) RegisterTarget(info types.TargetInfo) { h.registered = append(h.registered, info) }
 func (h *captureHandler) RemoveTarget(id string)               { h.removed = append(h.removed, id) }
 func (h *captureHandler) ContainerStopped(id string)           { h.stopped = append(h.stopped, id) }
+func (h *captureHandler) ContainerStarted(_ string)            {}
 
 // ---- Discover tests ----
 

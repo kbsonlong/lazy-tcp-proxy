@@ -26,6 +26,7 @@ type TargetInfo struct {
 	IdleTimeout   *time.Duration // nil = use global default; non-nil (incl. 0) = per-container override
 	Running       bool           // true if the target was running at time of inspection
 	WebhookURL    string         // empty = no webhook
+	Dependants    []string       // names of managed targets to start/stop alongside this one
 }
 
 // TargetHandler is implemented by the proxy server to receive target updates.
@@ -33,6 +34,7 @@ type TargetHandler interface {
 	RegisterTarget(info TargetInfo)
 	RemoveTarget(containerID string)
 	ContainerStopped(containerID string)
+	ContainerStarted(containerID string)
 }
 
 // ParsePortMappings tokenises a comma-separated "<listen>:<target>" string into
@@ -85,6 +87,20 @@ func ParseIPList(label, s string) []net.IPNet {
 		nets = append(nets, net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)})
 	}
 	return nets
+}
+
+// ParseDependants parses a comma-separated list of target names from the
+// lazy-tcp-proxy.dependants label/annotation. Whitespace is trimmed and blank
+// tokens are skipped.
+func ParseDependants(s string) []string {
+	var names []string
+	for _, token := range strings.Split(s, ",") {
+		name := strings.TrimSpace(token)
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 // ParseIdleTimeoutLabel converts a raw label value to a *time.Duration.

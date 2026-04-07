@@ -126,6 +126,7 @@ type ProxyServer struct {
 	mu            sync.RWMutex
 	targets       map[int]*targetState     // keyed by TCP listen port
 	udpTargets    map[int]*udpListenerState // keyed by UDP listen port
+	nameToID      map[string]string        // ContainerName → ContainerID for cascade lookup
 	pollInterval  time.Duration
 	idleTimeout   time.Duration
 	startTime     time.Time
@@ -139,6 +140,7 @@ func NewServer(ctx context.Context, b containerBackend, startTime time.Time, idl
 		ctx:           ctx,
 		targets:       make(map[int]*targetState),
 		udpTargets:    make(map[int]*udpListenerState),
+		nameToID:      make(map[string]string),
 		idleTimeout:   idleTimeout,
 		pollInterval:  pollInterval,
 		startTime:     startTime,
@@ -297,6 +299,9 @@ func (s *ProxyServer) RegisterTarget(info types.TargetInfo) {
 		go s.udpReadLoop(uls)
 		go s.udpFlowSweeper(s.ctx, uls, s.pollInterval)
 	}
+
+	// Keep name→ID map current for cascade lookups.
+	s.nameToID[info.ContainerName] = info.ContainerID
 }
 
 // RemoveTarget closes and removes all listeners for the given container.
@@ -307,6 +312,7 @@ func (s *ProxyServer) RemoveTarget(containerID string) {
 	for port, ts := range s.targets {
 		if ts.info.ContainerID == containerID {
 			log.Printf("proxy: removing target \033[33m%s\033[0m on TCP port %d", ts.info.ContainerName, port)
+			delete(s.nameToID, ts.info.ContainerName)
 			ts.removed = true
 			if err := ts.listener.Close(); err != nil {
 				log.Printf("proxy: error closing TCP listener on port %d: %v", port, err)
@@ -317,6 +323,7 @@ func (s *ProxyServer) RemoveTarget(containerID string) {
 	for port, uls := range s.udpTargets {
 		if uls.info.ContainerID == containerID {
 			log.Printf("proxy: removing target \033[33m%s\033[0m on UDP port %d", uls.info.ContainerName, port)
+			delete(s.nameToID, uls.info.ContainerName)
 			uls.removed = true
 			if err := uls.listenConn.Close(); err != nil {
 				log.Printf("proxy: error closing UDP listener on port %d: %v", port, err)
@@ -327,19 +334,41 @@ func (s *ProxyServer) RemoveTarget(containerID string) {
 }
 
 // ContainerStopped marks all port mappings for the given container as stopped
-// so the inactivity checker does not issue further stop calls.
+// and cascades a stop to any declared dependants.
 func (s *ProxyServer) ContainerStopped(containerID string) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	var info types.TargetInfo
 	for _, ts := range s.targets {
 		if ts.info.ContainerID == containerID {
 			ts.running = false
+			info = ts.info
 		}
 	}
 	for _, uls := range s.udpTargets {
 		if uls.info.ContainerID == containerID {
 			uls.running = false
+			info = uls.info
 		}
+	}
+	s.mu.RUnlock()
+	if len(info.Dependants) > 0 {
+		go s.cascadeStop(info)
+	}
+}
+
+// ContainerStarted cascades a start to any declared dependants.
+func (s *ProxyServer) ContainerStarted(containerID string) {
+	s.mu.RLock()
+	var info types.TargetInfo
+	for _, ts := range s.targets {
+		if ts.info.ContainerID == containerID {
+			info = ts.info
+			break
+		}
+	}
+	s.mu.RUnlock()
+	if len(info.Dependants) > 0 {
+		go s.cascadeStart(info)
 	}
 }
 
@@ -375,6 +404,7 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 		containerID string
 		name        string
 		webhookURL  string
+		info        types.TargetInfo
 		allIdle     bool
 		tcpStates   []*targetState
 		udpStates   []*udpListenerState
@@ -387,7 +417,7 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 		}
 		e, ok := byContainer[ts.info.ContainerID]
 		if !ok {
-			e = &entry{containerID: ts.info.ContainerID, name: ts.info.ContainerName, webhookURL: ts.info.WebhookURL, allIdle: true}
+			e = &entry{containerID: ts.info.ContainerID, name: ts.info.ContainerName, webhookURL: ts.info.WebhookURL, info: ts.info, allIdle: true}
 			byContainer[ts.info.ContainerID] = e
 		}
 		e.tcpStates = append(e.tcpStates, ts)
@@ -403,7 +433,7 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 		}
 		e, ok := byContainer[uls.info.ContainerID]
 		if !ok {
-			e = &entry{containerID: uls.info.ContainerID, name: uls.info.ContainerName, webhookURL: uls.info.WebhookURL, allIdle: true}
+			e = &entry{containerID: uls.info.ContainerID, name: uls.info.ContainerName, webhookURL: uls.info.WebhookURL, info: uls.info, allIdle: true}
 			byContainer[uls.info.ContainerID] = e
 		}
 		e.udpStates = append(e.udpStates, uls)
@@ -430,6 +460,9 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 				}
 				if e.webhookURL != "" {
 					go s.fireWebhook(e.webhookURL, "container_stopped", e.containerID, e.name, "", "")
+				}
+				if len(e.info.Dependants) > 0 {
+					go s.cascadeStop(e.info)
 				}
 			}
 		}
@@ -593,4 +626,89 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 
 	wg.Wait()
 	log.Printf("proxy: connection to \033[33m%s\033[0m closed", ts.info.ContainerName)
+}
+
+// cascadeStart starts all registered dependants of upstream.
+func (s *ProxyServer) cascadeStart(upstream types.TargetInfo) {
+	for _, depName := range upstream.Dependants {
+		s.mu.RLock()
+		depID, ok := s.nameToID[depName]
+		s.mu.RUnlock()
+
+		if !ok {
+			log.Printf("proxy: cascade start: \033[33m%s\033[0m → %q not registered, skipping",
+				upstream.ContainerName, depName)
+			continue
+		}
+		log.Printf("proxy: cascade start: \033[33m%s\033[0m → \033[33m%s\033[0m",
+			upstream.ContainerName, depName)
+		if err := s.backend.EnsureRunning(s.ctx, depID); err != nil {
+			log.Printf("proxy: cascade start: error starting \033[33m%s\033[0m: %v", depName, err)
+			continue
+		}
+		s.mu.RLock()
+		for _, ts := range s.targets {
+			if ts.info.ContainerID == depID {
+				ts.running = true
+			}
+		}
+		for _, uls := range s.udpTargets {
+			if uls.info.ContainerID == depID {
+				uls.running = true
+			}
+		}
+		s.mu.RUnlock()
+	}
+}
+
+// cascadeStop stops all registered dependants of upstream that are still running.
+func (s *ProxyServer) cascadeStop(upstream types.TargetInfo) {
+	for _, depName := range upstream.Dependants {
+		s.mu.RLock()
+		depID, ok := s.nameToID[depName]
+		// Check whether any mapping for this dependant is still running.
+		running := false
+		for _, ts := range s.targets {
+			if ts.info.ContainerID == depID && ts.running {
+				running = true
+				break
+			}
+		}
+		if !running {
+			for _, uls := range s.udpTargets {
+				if uls.info.ContainerID == depID && uls.running {
+					running = true
+					break
+				}
+			}
+		}
+		s.mu.RUnlock()
+
+		if !ok {
+			log.Printf("proxy: cascade stop: \033[33m%s\033[0m → %q not registered, skipping",
+				upstream.ContainerName, depName)
+			continue
+		}
+		if !running {
+			continue // already stopped
+		}
+		log.Printf("proxy: cascade stop: \033[33m%s\033[0m → \033[33m%s\033[0m",
+			upstream.ContainerName, depName)
+		if err := s.backend.StopContainer(s.ctx, depID, depName); err != nil {
+			log.Printf("proxy: cascade stop: error stopping \033[33m%s\033[0m: %v", depName, err)
+			continue
+		}
+		s.mu.RLock()
+		for _, ts := range s.targets {
+			if ts.info.ContainerID == depID {
+				ts.running = false
+			}
+		}
+		for _, uls := range s.udpTargets {
+			if uls.info.ContainerID == depID {
+				uls.running = false
+			}
+		}
+		s.mu.RUnlock()
+	}
 }

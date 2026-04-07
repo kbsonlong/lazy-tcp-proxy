@@ -62,6 +62,7 @@ Add these labels to any container you want proxied/managed:
 | `lazy-tcp-proxy.block-list` | No | Comma-separated IPs/CIDRs. If set, matching source addresses are silently dropped; all others are forwarded |
 | `lazy-tcp-proxy.idle-timeout-secs` | No | Override the global `IDLE_TIMEOUT_SECS` for this container only (seconds). `0` = stop immediately when the last connection closes |
 | `lazy-tcp-proxy.webhook-url` | No | HTTP(S) URL to POST lifecycle events to (see [Webhooks](#webhooks)) |
+| `lazy-tcp-proxy.dependants` | No | Comma-separated names of other managed containers/deployments that should start and stop alongside this one (see [Dependency Cascade](#dependency-cascade)) |
 
 \* At least one of `lazy-tcp-proxy.ports` or `lazy-tcp-proxy.udp-ports` must be set. A container may use TCP only, UDP only, or both.
 
@@ -211,6 +212,54 @@ labels:
   - "lazy-tcp-proxy.ports=9000:80"
   - "lazy-tcp-proxy.webhook-url=https://hooks.example.com/my-service"
 ```
+
+---
+
+## Dependency Cascade
+
+Use `lazy-tcp-proxy.dependants` to declare a list of other managed containers
+(or Kubernetes Deployments) that should start and stop automatically whenever
+this container starts or stops.
+
+**When to use it:** Hub-and-node patterns where the hub container acts as a
+broker or event bus and the nodes are useless without it — for example, a
+Selenium Grid hub with browser nodes.
+
+```yaml
+services:
+  selenium-hub:
+    image: selenium/hub:4.21.0
+    labels:
+      lazy-tcp-proxy.enabled: "true"
+      lazy-tcp-proxy.ports: "4444:4444"
+      lazy-tcp-proxy.dependants: "selenium-chromium,selenium-firefox"
+
+  selenium-chromium:
+    image: selenium/node-chromium:4.21.0
+    labels:
+      lazy-tcp-proxy.enabled: "true"
+      lazy-tcp-proxy.ports: "5900:5900"
+    environment:
+      SE_EVENT_BUS_HOST: selenium-hub
+
+  selenium-firefox:
+    image: selenium/node-firefox:4.21.0
+    labels:
+      lazy-tcp-proxy.enabled: "true"
+      lazy-tcp-proxy.ports: "5901:5900"
+    environment:
+      SE_EVENT_BUS_HOST: selenium-hub
+```
+
+**Cascade rules:**
+- When the hub starts (traffic arrives or external `docker start`), all listed
+  dependants are started immediately.
+- When the hub stops (idle timeout or external `docker stop`), all listed
+  dependants are stopped.
+- Values are the `ContainerName` / Deployment name of each managed dependant.
+- If a dependant is already running/stopped, the cascade is a no-op.
+- Works with both `BACKEND=docker` and `BACKEND=kubernetes` (use Deployment
+  annotations instead of labels in k8s mode).
 
 ---
 

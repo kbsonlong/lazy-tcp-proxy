@@ -137,6 +137,43 @@ func TestParseIPList_WhitespaceOnly(t *testing.T) {
 	}
 }
 
+// ---- ParseDependants ----
+
+func TestParseDependants_Single(t *testing.T) {
+	got := ParseDependants("selenium-chromium")
+	if len(got) != 1 || got[0] != "selenium-chromium" {
+		t.Errorf("got %v, want [selenium-chromium]", got)
+	}
+}
+
+func TestParseDependants_Multiple(t *testing.T) {
+	got := ParseDependants("a,b,c")
+	if len(got) != 3 || got[0] != "a" || got[1] != "b" || got[2] != "c" {
+		t.Errorf("got %v, want [a b c]", got)
+	}
+}
+
+func TestParseDependants_WhitespaceTrimmed(t *testing.T) {
+	got := ParseDependants(" a , b ")
+	if len(got) != 2 || got[0] != "a" || got[1] != "b" {
+		t.Errorf("got %v, want [a b]", got)
+	}
+}
+
+func TestParseDependants_Empty(t *testing.T) {
+	got := ParseDependants("")
+	if len(got) != 0 {
+		t.Errorf("got %v, want []", got)
+	}
+}
+
+func TestParseDependants_BlankTokensSkipped(t *testing.T) {
+	got := ParseDependants(",a,")
+	if len(got) != 1 || got[0] != "a" {
+		t.Errorf("got %v, want [a]", got)
+	}
+}
+
 // ---- ParseIdleTimeoutLabel ----
 
 func TestParseIdleTimeoutLabel_ValidPositive(t *testing.T) {

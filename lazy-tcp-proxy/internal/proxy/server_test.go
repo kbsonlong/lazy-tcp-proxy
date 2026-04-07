@@ -525,12 +525,18 @@ func TestCheckInactivity_TCPIdleButUDPActiveDoesNotStop(t *testing.T) {
 
 // ---- helpers ----
 
-// mockBackend satisfies containerBackend for inactivity tests.
+// mockBackend satisfies containerBackend for unit tests.
 type mockBackend struct {
-	stopFunc func(containerID string)
+	stopFunc  func(containerID string)
+	startFunc func(containerID string)
 }
 
-func (m *mockBackend) EnsureRunning(_ context.Context, _ string) error { return nil }
+func (m *mockBackend) EnsureRunning(_ context.Context, id string) error {
+	if m.startFunc != nil {
+		m.startFunc(id)
+	}
+	return nil
+}
 func (m *mockBackend) GetUpstreamHost(_ context.Context, _, _ string) (string, error) {
 	return "", nil
 }
@@ -546,6 +552,7 @@ func newTestServer() *ProxyServer {
 		ctx:          context.Background(),
 		targets:      make(map[int]*targetState),
 		udpTargets:   make(map[int]*udpListenerState),
+		nameToID:     make(map[string]string),
 		idleTimeout:  5 * time.Minute,
 		pollInterval: 15 * time.Second,
 		startTime:    time.Now().Add(-1 * time.Hour),
@@ -556,6 +563,170 @@ func newTestServerWithStopper(stopFn func(id string)) *ProxyServer {
 	s := newTestServer()
 	s.backend = &mockBackend{stopFunc: stopFn}
 	return s
+}
+
+func newTestServerWithStartStopper(startFn, stopFn func(id string)) *ProxyServer {
+	s := newTestServer()
+	s.backend = &mockBackend{startFunc: startFn, stopFunc: stopFn}
+	return s
+}
+
+// ---- cascade ----
+
+// populateCascadeTargets sets up hub→chrome in s.targets and s.nameToID directly,
+// avoiding real port binding conflicts. hubRunning and chromeRunning control initial state.
+func populateCascadeTargets(s *ProxyServer, hubRunning, chromeRunning bool) {
+	hubInfo := types.TargetInfo{
+		ContainerID:   "hub-id",
+		ContainerName: "hub",
+		Running:       hubRunning,
+		Dependants:    []string{"chrome"},
+	}
+	chromeInfo := types.TargetInfo{
+		ContainerID:   "chrome-id",
+		ContainerName: "chrome",
+		Running:       chromeRunning,
+	}
+	s.targets[9000] = &targetState{
+		info:       hubInfo,
+		targetPort: 4444,
+		running:    hubRunning,
+		lastActive: time.Now().Add(-10 * time.Minute), // hub is idle
+	}
+	s.targets[9001] = &targetState{
+		info:       chromeInfo,
+		targetPort: 5900,
+		running:    chromeRunning,
+		lastActive: time.Now(), // chrome is recently active — only stopped via cascade
+	}
+	s.nameToID["hub"] = "hub-id"
+	s.nameToID["chrome"] = "chrome-id"
+}
+
+func TestCascadeStart_StartsRegisteredDependant(t *testing.T) {
+	started := make(chan string, 1)
+	s := newTestServerWithStartStopper(func(id string) { started <- id }, nil)
+	populateCascadeTargets(s, true, false)
+
+	s.ContainerStarted("hub-id")
+
+	select {
+	case id := <-started:
+		if id != "chrome-id" {
+			t.Errorf("expected chrome-id to be started, got %s", id)
+		}
+	case <-time.After(time.Second):
+		t.Error("EnsureRunning was not called for chrome")
+	}
+}
+
+func TestCascadeStart_SkipsUnknownDependant(t *testing.T) {
+	started := make(chan string, 1)
+	s := newTestServerWithStartStopper(func(id string) { started <- id }, nil)
+
+	s.targets[9000] = &targetState{
+		info: types.TargetInfo{
+			ContainerID:   "hub-id",
+			ContainerName: "hub",
+			Dependants:    []string{"unknown-service"},
+		},
+		running: true,
+	}
+	s.nameToID["hub"] = "hub-id"
+
+	s.ContainerStarted("hub-id")
+
+	time.Sleep(50 * time.Millisecond)
+	select {
+	case id := <-started:
+		t.Errorf("EnsureRunning should not have been called; got %s", id)
+	default:
+	}
+}
+
+func TestCascadeStart_NoDependants_NoAction(t *testing.T) {
+	started := make(chan string, 1)
+	s := newTestServerWithStartStopper(func(id string) { started <- id }, nil)
+
+	s.targets[9000] = &targetState{
+		info:    types.TargetInfo{ContainerID: "hub-id", ContainerName: "hub"},
+		running: true,
+	}
+	s.nameToID["hub"] = "hub-id"
+
+	s.ContainerStarted("hub-id")
+
+	time.Sleep(50 * time.Millisecond)
+	select {
+	case id := <-started:
+		t.Errorf("EnsureRunning should not have been called; got %s", id)
+	default:
+	}
+}
+
+func TestCascadeStart_UnknownContainerID_NoPanic(t *testing.T) {
+	s := newTestServerWithStartStopper(nil, nil)
+	// Should not panic for an unknown containerID.
+	s.ContainerStarted("does-not-exist")
+}
+
+func TestCascadeStop_StopsRunningDependant(t *testing.T) {
+	stopped := make(chan string, 1)
+	s := newTestServerWithStopper(func(id string) { stopped <- id })
+	populateCascadeTargets(s, true, true)
+
+	s.ContainerStopped("hub-id")
+
+	select {
+	case id := <-stopped:
+		if id != "chrome-id" {
+			t.Errorf("expected chrome-id to be stopped, got %s", id)
+		}
+	case <-time.After(time.Second):
+		t.Error("StopContainer was not called for chrome")
+	}
+}
+
+func TestCascadeStop_SkipsAlreadyStopped(t *testing.T) {
+	stopped := make(chan string, 1)
+	s := newTestServerWithStopper(func(id string) { stopped <- id })
+	populateCascadeTargets(s, true, false) // chrome already stopped
+
+	s.ContainerStopped("hub-id")
+
+	time.Sleep(50 * time.Millisecond)
+	select {
+	case id := <-stopped:
+		t.Errorf("StopContainer should not have been called for already-stopped chrome; got %s", id)
+	default:
+	}
+}
+
+func TestCascadeStop_TriggeredByCheckInactivity(t *testing.T) {
+	stopped := make(chan string, 2)
+	s := newTestServerWithStopper(func(id string) { stopped <- id })
+	populateCascadeTargets(s, true, true)
+
+	s.checkInactivity(context.Background())
+
+	// hub should be stopped first (synchronous in checkInactivity).
+	select {
+	case id := <-stopped:
+		if id != "hub-id" {
+			t.Errorf("expected hub-id to be stopped first, got %s", id)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("hub was not stopped")
+	}
+	// chrome cascade stop fires in a goroutine.
+	select {
+	case id := <-stopped:
+		if id != "chrome-id" {
+			t.Errorf("expected chrome-id to be cascade-stopped, got %s", id)
+		}
+	case <-time.After(time.Second):
+		t.Error("chrome was not cascade-stopped")
+	}
 }
 
 // ---- relativeTime ----

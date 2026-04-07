@@ -194,6 +194,11 @@ func (m *Manager) containerToTargetInfo(ctx context.Context, containerID string)
 		}
 	}
 
+	var dependants []string
+	if v := strings.TrimSpace(inspect.Config.Labels["lazy-tcp-proxy.dependants"]); v != "" {
+		dependants = types.ParseDependants(v)
+	}
+
 	return types.TargetInfo{
 		ContainerID:   containerID,
 		ContainerName: name,
@@ -205,6 +210,7 @@ func (m *Manager) containerToTargetInfo(ctx context.Context, containerID string)
 		IdleTimeout:   idleTimeout,
 		Running:       inspect.State.Running,
 		WebhookURL:    webhookURL,
+		Dependants:    dependants,
 	}, nil
 }
 
@@ -429,6 +435,9 @@ func (m *Manager) WatchEvents(ctx context.Context, handler types.TargetHandler) 
 						log.Printf("docker: event: joined network: \033[32m%s\033[0m", n)
 					}
 					handler.RegisterTarget(info)
+					if msg.Action == "start" {
+						handler.ContainerStarted(msg.Actor.ID)
+					}
 
 				case "die":
 					name := msg.Actor.Attributes["name"]

@@ -2,7 +2,7 @@
 
 **Requirement**: [2026-04-07-docker-dependency-cascade.md](2026-04-07-docker-dependency-cascade.md)
 **Date**: 2026-04-07
-**Status**: Draft
+**Status**: Implemented
 
 ---
 

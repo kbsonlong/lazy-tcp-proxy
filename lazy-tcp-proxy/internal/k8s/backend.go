@@ -153,6 +153,9 @@ func (b *Backend) WatchEvents(ctx context.Context, handler types.TargetHandler) 
 				}
 				b.storeServiceName(id, d.Annotations)
 				handler.RegisterTarget(info)
+				if info.Running {
+					handler.ContainerStarted(id)
+				}
 				log.Printf("k8s: event: deployment updated: \033[33m%s\033[0m", d.Name)
 			case watch.Deleted:
 				log.Printf("k8s: event: deployment removed: \033[33m%s\033[0m", d.Name)
@@ -273,6 +276,11 @@ func (b *Backend) deploymentToTargetInfo(d appsv1.Deployment) (types.TargetInfo,
 		}
 	}
 
+	var dependants []string
+	if v := strings.TrimSpace(ann["lazy-tcp-proxy.dependants"]); v != "" {
+		dependants = types.ParseDependants(v)
+	}
+
 	return types.TargetInfo{
 		ContainerID:   d.Namespace + "/" + d.Name,
 		ContainerName: d.Name,
@@ -283,6 +291,7 @@ func (b *Backend) deploymentToTargetInfo(d appsv1.Deployment) (types.TargetInfo,
 		IdleTimeout:   idleTimeout,
 		Running:       d.Status.ReadyReplicas > 0,
 		WebhookURL:    webhookURL,
+		Dependants:    dependants,
 	}, nil
 }
 
