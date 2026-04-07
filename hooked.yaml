@@ -43,6 +43,7 @@ scripts:
         --tag mountainpass/lazy-tcp-proxy:latest \
         --push \
         .
+      docker pull mountainpass/lazy-tcp-proxy
 
   ghsetup:
     $cmd: |
