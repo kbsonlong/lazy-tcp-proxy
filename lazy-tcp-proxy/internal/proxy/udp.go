@@ -19,6 +19,7 @@ type udpFlow struct {
 	clientAddr   *net.UDPAddr
 	upstreamConn *net.UDPConn
 	lastActive   time.Time
+	connectionID string // UUID v4 correlating udp_flow_start and udp_flow_end events
 }
 
 // udpListenerState holds the shared inbound UDP socket and all active flows
@@ -129,10 +130,12 @@ func (s *ProxyServer) startUDPFlow(uls *udpListenerState, clientAddr *net.UDPAdd
 		return
 	}
 
+	connID := newConnectionID()
 	flow := &udpFlow{
 		clientAddr:   clientAddr,
 		upstreamConn: upstreamConn,
 		lastActive:   time.Now(),
+		connectionID: connID,
 	}
 
 	uls.mu.Lock()
@@ -143,6 +146,10 @@ func (s *ProxyServer) startUDPFlow(uls *udpListenerState, clientAddr *net.UDPAdd
 
 	uls.activeFlows.Add(1)
 	go s.udpUpstreamReadLoop(uls, flow)
+
+	if uls.info.WebhookURL != "" {
+		go s.fireWebhook(uls.info.WebhookURL, "udp_flow_start", uls.info.ContainerID, uls.info.ContainerName, connID, clientAddr.IP.String(), clientAddr.Port)
+	}
 
 	if _, err := upstreamConn.Write(firstDatagram); err != nil {
 		log.Printf("proxy: udp: write first datagram to \033[33m%s\033[0m failed: %v", uls.info.ContainerName, err)
@@ -192,6 +199,11 @@ func (s *ProxyServer) udpFlowSweeper(ctx context.Context, uls *udpListenerState,
 						log.Printf("proxy: udp: error closing upstream conn for flow %s: %v", flow.clientAddr, err)
 					}
 					delete(uls.flows, key)
+					if uls.info.WebhookURL != "" {
+						connID := flow.connectionID
+						clientAddr := flow.clientAddr
+						go s.fireWebhook(uls.info.WebhookURL, "udp_flow_end", uls.info.ContainerID, uls.info.ContainerName, connID, clientAddr.IP.String(), clientAddr.Port)
+					}
 				}
 			}
 			uls.mu.Unlock()

@@ -171,15 +171,18 @@ labels:
 
 Containers can declare a webhook URL via the `lazy-tcp-proxy.webhook-url` label. The proxy will POST a JSON payload to that URL on the following events:
 
-| Event | When | `connection_id` | `remote_addr` |
-|-------|------|-----------------|---------------|
+| Event | When | `connection_id` | `remote_addr` / `remote_port` |
+|-------|------|-----------------|-------------------------------|
 | `container_started` | Proxy successfully started the container on an inbound connection | No | No |
 | `container_stopped` | Proxy stopped the container due to idle timeout | No | No |
-| `connection_started` | An inbound TCP connection was accepted (after allow/block-list check) | Yes | Yes |
-| `connection_ended` | That TCP connection has closed | Yes | Yes |
+| `tcp_conn_start` | An inbound TCP connection was accepted (after allow/block-list check) | Yes | Yes |
+| `tcp_conn_end` | That TCP connection has closed | Yes | Yes |
+| `udp_flow_start` | A new UDP flow was established from a client (after allow/block-list check) | Yes | Yes |
+| `udp_flow_end` | That UDP flow expired due to idle timeout | Yes | Yes |
 
-- `connection_id` — UUID v4 uniquely identifying a single TCP connection. The same value appears in both `connection_started` and `connection_ended`, allowing external systems to correlate the pair and calculate duration.
-- `remote_addr` — the client's IP address (without port).
+- `connection_id` — UUID v4 shared by the start and end pair, allowing external systems to correlate them and measure duration.
+- `remote_addr` — client IP address (no port).
+- `remote_port` — client port as an integer.
 
 **Container lifecycle payload** (`container_started` / `container_stopped`):
 ```json
@@ -191,12 +194,26 @@ Containers can declare a webhook URL via the `lazy-tcp-proxy.webhook-url` label.
 }
 ```
 
-**Connection payload** (`connection_started` / `connection_ended`):
+**TCP connection payload** (`tcp_conn_start` / `tcp_conn_end`):
 ```json
 {
-  "event": "connection_started",
+  "event": "tcp_conn_start",
   "connection_id": "550e8400-e29b-41d4-a716-446655440000",
   "remote_addr": "192.168.1.42",
+  "remote_port": 54321,
+  "container_id": "a1b2c3d4e5f6",
+  "container_name": "my-service",
+  "timestamp": "2026-04-01T12:34:56Z"
+}
+```
+
+**UDP flow payload** (`udp_flow_start` / `udp_flow_end`):
+```json
+{
+  "event": "udp_flow_start",
+  "connection_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "remote_addr": "192.168.1.42",
+  "remote_port": 61234,
   "container_id": "a1b2c3d4e5f6",
   "container_name": "my-service",
   "timestamp": "2026-04-01T12:34:56Z"

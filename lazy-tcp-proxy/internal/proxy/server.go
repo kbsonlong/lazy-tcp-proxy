@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"runtime/debug"
 	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -91,6 +92,7 @@ type webhookPayload struct {
 	Event         string `json:"event"`
 	ConnectionID  string `json:"connection_id,omitempty"`
 	RemoteAddr    string `json:"remote_addr,omitempty"`
+	RemotePort    int    `json:"remote_port,omitempty"`
 	ContainerID   string `json:"container_id"`
 	ContainerName string `json:"container_name"`
 	Timestamp     string `json:"timestamp"`
@@ -185,10 +187,10 @@ func (s *ProxyServer) Snapshot() []TargetSnapshot {
 }
 
 // fireWebhook POSTs a lifecycle event to the container's webhook URL.
-// connID and remoteAddr are included when non-empty (connection events); pass ""
-// for container lifecycle events.
+// connID, remoteAddr and remotePort are included for connection/flow events;
+// pass "", "", 0 for container lifecycle events.
 // Must be called in a goroutine — never blocks the proxy path.
-func (s *ProxyServer) fireWebhook(webhookURL, event, containerID, containerName, connID, remoteAddr string) {
+func (s *ProxyServer) fireWebhook(webhookURL, event, containerID, containerName, connID, remoteAddr string, remotePort int) {
 	id := containerID
 	if len(id) > 12 {
 		id = id[:12]
@@ -197,6 +199,7 @@ func (s *ProxyServer) fireWebhook(webhookURL, event, containerID, containerName,
 		Event:         event,
 		ConnectionID:  connID,
 		RemoteAddr:    remoteAddr,
+		RemotePort:    remotePort,
 		ContainerID:   id,
 		ContainerName: containerName,
 		Timestamp:     time.Now().UTC().Format(time.RFC3339),
@@ -459,7 +462,7 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 					uls.running = false
 				}
 				if e.webhookURL != "" {
-					go s.fireWebhook(e.webhookURL, "container_stopped", e.containerID, e.name, "", "")
+					go s.fireWebhook(e.webhookURL, "container_stopped", e.containerID, e.name, "", "", 0)
 				}
 				if len(e.info.Dependants) > 0 {
 					go s.cascadeStop(e.info)
@@ -544,12 +547,13 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 	log.Printf("proxy: new connection to \033[33m%s\033[0m (port %d) from \033[36m%s\033[0m",
 		ts.info.ContainerName, ts.targetPort, conn.RemoteAddr())
 
-	remoteIP, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
+	remoteIP, remotePortStr, _ := net.SplitHostPort(conn.RemoteAddr().String())
+	remotePort, _ := strconv.Atoi(remotePortStr)
 	connID := newConnectionID()
 	if ts.info.WebhookURL != "" {
-		go s.fireWebhook(ts.info.WebhookURL, "connection_started", ts.info.ContainerID, ts.info.ContainerName, connID, remoteIP)
+		go s.fireWebhook(ts.info.WebhookURL, "tcp_conn_start", ts.info.ContainerID, ts.info.ContainerName, connID, remoteIP, remotePort)
 		defer func() {
-			go s.fireWebhook(ts.info.WebhookURL, "connection_ended", ts.info.ContainerID, ts.info.ContainerName, connID, remoteIP)
+			go s.fireWebhook(ts.info.WebhookURL, "tcp_conn_end", ts.info.ContainerID, ts.info.ContainerName, connID, remoteIP, remotePort)
 		}()
 	}
 
@@ -558,7 +562,7 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 		return
 	}
 	if ts.info.WebhookURL != "" {
-		go s.fireWebhook(ts.info.WebhookURL, "container_started", ts.info.ContainerID, ts.info.ContainerName, "", "")
+		go s.fireWebhook(ts.info.WebhookURL, "container_started", ts.info.ContainerID, ts.info.ContainerName, "", "", 0)
 	}
 
 	// Determine preferred network hint (first network ID in list; unused in k8s mode)

@@ -47,3 +47,4 @@
 | REQ-043 | UDP-Only Config Validation Fix                    | High   | Completed   | 2026-04-07 | [2026-04-07-udp-only-config-validation.md](2026-04-07-udp-only-config-validation.md) |
 | REQ-044 | Webhook Connection Events — Add Source IP Address | Medium | Completed   | 2026-04-07 | [2026-04-07-webhook-connection-ip-address.md](2026-04-07-webhook-connection-ip-address.md) |
 | REQ-045 | Dependency Cascade (lazy-tcp-proxy.dependants)    | Medium | Completed   | 2026-04-07 | [2026-04-07-docker-dependency-cascade.md](2026-04-07-docker-dependency-cascade.md) |
+| REQ-046 | UDP Flow Webhook Events & Rename TCP Event Names  | Medium | Completed   | 2026-04-07 | [2026-04-07-webhook-udp-flow-events.md](2026-04-07-webhook-udp-flow-events.md) |
