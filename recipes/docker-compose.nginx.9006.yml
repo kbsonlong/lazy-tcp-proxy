@@ -1,0 +1,9 @@
+services:
+  nginx:
+    image: nginx:stable
+    container_name: nginx
+    command: >
+      sh -c 'echo "events {}\nhttp { server { listen 80; keepalive_timeout 0; location / { root /usr/share/nginx/html; index index.html; } } }" > /etc/nginx/nginx.conf && nginx -g "daemon off;"'
+    labels:
+      - "lazy-tcp-proxy.enabled=true"
+      - "lazy-tcp-proxy.ports=9006:80"
