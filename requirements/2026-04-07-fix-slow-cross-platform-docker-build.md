@@ -2,7 +2,7 @@
 
 **Date Added**: 2026-04-07
 **Priority**: Medium
-**Status**: In Progress
+**Status**: Completed
 
 ## Problem Statement
 
@@ -38,9 +38,9 @@ compilation.
 
 ## Acceptance Criteria
 
-- [ ] `FROM` line for builder stage includes `--platform=$BUILDPLATFORM`.
-- [ ] `ARG TARGETARCH` and `ARG TARGETVARIANT` are declared before the `RUN go build` step.
-- [ ] `go build` command uses `GOARCH=${TARGETARCH}` and `GOARM=${TARGETVARIANT#v}`.
+- [x] `FROM` line for builder stage includes `--platform=$BUILDPLATFORM`.
+- [x] `ARG TARGETARCH` and `ARG TARGETVARIANT` are declared before the `RUN go build` step.
+- [x] `go build` command uses `GOARCH=${TARGETARCH}` and `GOARM=${TARGETVARIANT#v}`.
 - [ ] `docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6` completes
   successfully and produces valid images for all four platforms.
 - [ ] Build time for `linux/arm/v7` drops significantly (target: under 120 seconds from a warm cache).

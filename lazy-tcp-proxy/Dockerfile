@@ -1,10 +1,12 @@
-FROM golang:1.25.8-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.25.8-alpine AS builder
+ARG TARGETARCH
+ARG TARGETVARIANT
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN go test ./...
-RUN CGO_ENABLED=0 GOOS=linux go build -a -trimpath -o lazy-tcp-proxy .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} GOARM=${TARGETVARIANT#v} go build -a -trimpath -o lazy-tcp-proxy .
 
 FROM scratch
 COPY --from=builder /app/lazy-tcp-proxy /lazy-tcp-proxy
