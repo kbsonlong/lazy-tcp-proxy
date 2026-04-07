@@ -11,7 +11,7 @@
 
 `lazy-tcp-proxy` allows you to run many Dockerized services on a single host, but only start containers when a connection arrives. It stops containers after a configurable idle timeout, saving resources while providing seamless access.
 
-Supported architectures: `linux/amd64`, `linux/arm64`, `linux/arm/v7`, `linux/arm/v6`
+Supported architectures: `linux/amd64`, `linux/arm64`, `linux/arm/v7`
 
 ### Why:
 
