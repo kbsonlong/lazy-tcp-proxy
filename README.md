@@ -56,8 +56,11 @@ Add these labels to any container you want proxied/managed:
 | Label | Required | Description |
 |-------|----------|-------------|
 | `lazy-tcp-proxy.enabled` | Yes | Must be `true` to opt the container in |
-| `lazy-tcp-proxy.ports` | Yes | Comma-separated `<listen>:<target>` TCP port pairs |
-| `lazy-tcp-proxy.udp-ports` | No | Comma-separated `<listen>:<target>` UDP port pairs (see [UDP Support](#udp-support)) |
+| `lazy-tcp-proxy.ports` | Yes* | Comma-separated `<listen>:<target>` TCP port pairs |
+| `lazy-tcp-proxy.udp-ports` | Yes* | Comma-separated `<listen>:<target>` UDP port pairs (see [UDP Support](#udp-support)) |
+
+> \* At least one of `lazy-tcp-proxy.ports` or `lazy-tcp-proxy.udp-ports` must be set. A container may use TCP only, UDP only, or both.
+
 | `lazy-tcp-proxy.allow-list` | No | Comma-separated IPs/CIDRs. If set, only matching source addresses are forwarded; all others are silently dropped |
 | `lazy-tcp-proxy.block-list` | No | Comma-separated IPs/CIDRs. If set, matching source addresses are silently dropped; all others are forwarded |
 | `lazy-tcp-proxy.idle-timeout-secs` | No | Override the global `IDLE_TIMEOUT_SECS` for this container only (seconds). `0` = stop immediately when the last connection closes |
