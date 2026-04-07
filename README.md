@@ -27,6 +27,14 @@ To save compute resources (CPU, RAM, Electricity) on a single host by keeping co
 
 ## Quick Start
 
+The quickest way to get started is to use the [docker-compose "recipes"](recipes).
+
+These have many common services, with preconfigured options, so you can pick and choose.
+
+(Don't forget to run [docker-compose.lazy-tcp-proxy.yml](recipes/docker-compose.lazy-tcp-proxy.yml))
+
+Otherwise you can always run the container from the command line. You will need to add labels to your managed containers (see below).
+
 ```sh
 docker run -d \
 	-v /var/run/docker.sock:/var/run/docker.sock \
@@ -39,9 +47,6 @@ docker run -d \
 	mountainpass/lazy-tcp-proxy
 ```
 
-Then add labels to new or existing containers (see below).
-
-Or start with the example project - [`example/docker-compose.yml`](example/docker-compose.yml).
 
 ---
 
