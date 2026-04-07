@@ -52,4 +52,4 @@
 | REQ-048 | Cron-Based Scheduling (Docker & Kubernetes)       | Medium | Completed   | 2026-04-07 | [2026-04-06-cron-scheduling.md](2026-04-06-cron-scheduling.md) |
 | REQ-049 | Separate Kubernetes Build Artifact (mountainpass/lazy-tcp-proxy-k8s)   | Medium | Completed   | 2026-04-07 | [2026-04-07-separate-k8s-build-artifact.md](2026-04-07-separate-k8s-build-artifact.md) |
 | REQ-050 | Singleflight Deduplication for Container Startup | Medium | In Progress | 2026-04-07 | [2026-04-07-singleflight-container-startup.md](2026-04-07-singleflight-container-startup.md) |
-| REQ-051 | Fix Kubernetes WatchEvents Gaps                  | Medium | Planned     | 2026-04-07 | [2026-04-07-fix-k8s-watchevents.md](2026-04-07-fix-k8s-watchevents.md) |
+| REQ-051 | Fix Kubernetes WatchEvents Gaps                  | Medium | In Progress | 2026-04-07 | [2026-04-07-fix-k8s-watchevents.md](2026-04-07-fix-k8s-watchevents.md) |
