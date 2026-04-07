@@ -4,7 +4,9 @@
 **Date**: 2026-04-07
 **Status**: Draft
 
-## Design Refinement
+## Design Refinements
+
+### Refinement 1: Gate at `main` package level (not inside `internal/k8s`)
 
 The design proposed build-tagging `internal/k8s/backend.go` and adding a stub inside the k8s package.
 After codebase analysis, a cleaner approach is to gate at the `main` package level instead:
@@ -17,6 +19,25 @@ After codebase analysis, a cleaner approach is to gate at the `main` package lev
   binary when the `kubernetes` tag is not set — no stub needed.
 
 This avoids the stub entirely and keeps the k8s package clean.
+
+### Refinement 2: Remove the `BACKEND` environment variable
+
+With image-based backend selection, the `BACKEND` env var is redundant:
+
+- `mountainpass/lazy-tcp-proxy` (no tag) → always Docker; no choice to make.
+- `mountainpass/lazy-tcp-proxy-k8s` (`kubernetes` tag) → always Kubernetes; no choice to make.
+
+`backend_docker.go` and `backend_k8s.go` therefore call their respective backends directly with no
+env var switch. `K8S_NAMESPACE` is retained (it configures the Kubernetes backend, not selects it).
+
+**Code and documentation to update:**
+- `main.go` — `resolveBackend()` removed entirely (already planned)
+- `backend_k8s.go` — no `BACKEND` env var switch; calls k8s backend directly
+- `example/kubernetes/proxy.yaml` — remove `BACKEND=kubernetes` env entry; update image to
+  `mountainpass/lazy-tcp-proxy-k8s:latest`
+- `README.md` — remove the line mentioning `BACKEND=docker` / `BACKEND=kubernetes`
+
+Historical requirement files (REQ-038, REQ-041, etc.) are records of what was built — left untouched.
 
 ## Implementation Steps
 
@@ -38,16 +59,23 @@ This avoids the stub entirely and keeps the k8s package clean.
 6. **`.github/workflows/go-ci.yml`** — add a second `build` and `test` step that runs with
    `-tags kubernetes` so the k8s backend tests remain exercised in CI.
 
+7. **Remove `BACKEND` env var** from all code and docs:
+   - `example/kubernetes/proxy.yaml` — remove `BACKEND=kubernetes` env entry; update image to
+     `mountainpass/lazy-tcp-proxy-k8s:latest`
+   - `README.md` — remove the line mentioning `BACKEND=docker` / `BACKEND=kubernetes`
+
 ## File Change Summary
 
 | File | Action | Description |
 |------|--------|-------------|
 | `lazy-tcp-proxy/main.go` | Modify | Remove `resolveBackend()` and `k8sbackend` import |
 | `lazy-tcp-proxy/backend_docker.go` | Create | `//go:build !kubernetes` — docker-only `resolveBackend()` |
-| `lazy-tcp-proxy/backend_k8s.go` | Create | `//go:build kubernetes` — full `resolveBackend()` with k8s |
+| `lazy-tcp-proxy/backend_k8s.go` | Create | `//go:build kubernetes` — k8s-only `resolveBackend()`; no `BACKEND` env var |
 | `lazy-tcp-proxy/Dockerfile` | Modify | Add `ARG BUILD_TAGS=""`, pass `-tags ${BUILD_TAGS}` to `go build` |
 | `hooked.yaml` | Modify | Add `publish-k8s:` command |
 | `.github/workflows/go-ci.yml` | Modify | Add k8s-tagged build and test steps |
+| `example/kubernetes/proxy.yaml` | Modify | Remove `BACKEND=kubernetes` env entry; update image to `mountainpass/lazy-tcp-proxy-k8s:latest` |
+| `README.md` | Modify | Remove `BACKEND=docker`/`BACKEND=kubernetes` mention |
 
 ## Key Code Snippets
 
@@ -78,22 +106,14 @@ package main
 import (
 	"log"
 	"os"
-	"strings"
 
-	"github.com/mountain-pass/lazy-tcp-proxy/internal/docker"
 	k8sbackend "github.com/mountain-pass/lazy-tcp-proxy/internal/k8s"
 )
 
 func resolveBackend() (backendManager, error) {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("BACKEND"))) {
-	case "kubernetes", "k8s":
-		ns := os.Getenv("K8S_NAMESPACE")
-		log.Printf("backend: kubernetes (namespace=%q)", ns)
-		return k8sbackend.NewBackend(ns)
-	default:
-		log.Printf("backend: docker")
-		return docker.NewManager()
-	}
+	ns := os.Getenv("K8S_NAMESPACE")
+	log.Printf("backend: kubernetes (namespace=%q)", ns)
+	return k8sbackend.NewBackend(ns)
 }
 ```
 
@@ -140,18 +160,17 @@ Add two steps to the `test` job after the existing `test` step:
 |------|-------|-----------------|
 | Build without tag | `go build ./...` | Compiles; binary has no `k8s.io/*` symbols |
 | Build with tag | `go build -tags kubernetes ./...` | Compiles; binary includes k8s backend |
-| Test without tag | `go test ./...` | All non-k8s tests pass; k8s package tests still compile and pass (package has no build tag) |
+| Test without tag | `go test ./...` | All tests pass; k8s package tests still compile (no build tag on package) |
 | Test with tag | `go test -tags kubernetes ./...` | All tests pass including k8s backend tests |
-| Runtime (no tag) | `BACKEND=docker` | Docker backend used; works normally |
-| Runtime (k8s tag) | `BACKEND=kubernetes` | Kubernetes backend used; works normally |
-| Runtime (no tag, k8s env) | `BACKEND=kubernetes`, no-tag binary | `resolveBackend()` falls through to docker (docker-only binary ignores `BACKEND=kubernetes`) |
+| Runtime (docker image) | docker backend | Always uses Docker backend |
+| Runtime (k8s image) | k8s backend | Always uses Kubernetes backend; `K8S_NAMESPACE` respected |
 
 ## Risks & Open Questions
 
-- **Behaviour divergence on wrong image**: A user who sets `BACKEND=kubernetes` on the lean Docker image
-  will silently get the Docker backend instead of an error. This is acceptable — the image name
-  `mountainpass/lazy-tcp-proxy-k8s` makes the intent clear. Could add a warning log in
-  `backend_docker.go` if `BACKEND` is set to `kubernetes`, but that's out of scope for this requirement.
-- **`go test ./...` in Dockerfile**: The default build already omits `-tags kubernetes`, so k8s backend
-  tests run in CI (step 6) but not inside the Docker build step — this is consistent with the current
-  behaviour and acceptable.
+- **`go test ./...` in Dockerfile**: The default build omits `-tags kubernetes`, so k8s backend
+  tests run in CI (step 6) but not inside the Docker build step — consistent with current behaviour
+  and acceptable.
+- **`BACKEND` env var ignored silently**: Any existing deployments that set `BACKEND=docker` or
+  `BACKEND=kubernetes` will have that env var ignored after this change. The `BACKEND` entry should
+  be removed from `example/kubernetes/proxy.yaml` to avoid confusion; existing user deployments will
+  need a note in release docs.
