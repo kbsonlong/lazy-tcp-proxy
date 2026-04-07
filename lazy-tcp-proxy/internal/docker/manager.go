@@ -148,18 +148,22 @@ func (m *Manager) containerToTargetInfo(ctx context.Context, containerID string)
 	}
 	inspect := result.Container
 
-	portsStr, ok := inspect.Config.Labels["lazy-tcp-proxy.ports"]
-	if !ok {
-		return types.TargetInfo{}, fmt.Errorf("missing label lazy-tcp-proxy.ports")
+	portsStr, hasPorts := inspect.Config.Labels["lazy-tcp-proxy.ports"]
+	udpPortsStr, hasUDPPorts := inspect.Config.Labels["lazy-tcp-proxy.udp-ports"]
+	if !hasPorts && (!hasUDPPorts || udpPortsStr == "") {
+		return types.TargetInfo{}, fmt.Errorf("missing label lazy-tcp-proxy.ports or lazy-tcp-proxy.udp-ports")
 	}
-	ports := types.ParsePortMappings("lazy-tcp-proxy.ports", portsStr)
-	if len(ports) == 0 {
-		return types.TargetInfo{}, fmt.Errorf("label lazy-tcp-proxy.ports contains no valid port mappings")
+	var ports []types.PortMapping
+	if hasPorts {
+		ports = types.ParsePortMappings("lazy-tcp-proxy.ports", portsStr)
+		if len(ports) == 0 {
+			return types.TargetInfo{}, fmt.Errorf("label lazy-tcp-proxy.ports contains no valid port mappings")
+		}
 	}
 
 	var udpPorts []types.PortMapping
-	if v, ok := inspect.Config.Labels["lazy-tcp-proxy.udp-ports"]; ok && v != "" {
-		udpPorts = types.ParsePortMappings("lazy-tcp-proxy.udp-ports", v)
+	if hasUDPPorts && udpPortsStr != "" {
+		udpPorts = types.ParsePortMappings("lazy-tcp-proxy.udp-ports", udpPortsStr)
 	}
 
 	name := strings.TrimPrefix(inspect.Name, "/")
@@ -388,19 +392,22 @@ func (m *Manager) WatchEvents(ctx context.Context, handler types.TargetHandler) 
 						continue
 					}
 					portsVal, hasPorts := attrs["lazy-tcp-proxy.ports"]
-					if !hasPorts {
-						log.Printf("docker: event: container %s started but not proxied: missing label lazy-tcp-proxy.ports", name)
+					udpPortsVal := attrs["lazy-tcp-proxy.udp-ports"]
+					if !hasPorts && udpPortsVal == "" {
+						log.Printf("docker: event: container %s started but not proxied: missing label lazy-tcp-proxy.ports or lazy-tcp-proxy.udp-ports", name)
 						continue
 					}
-					valid := false
-					for _, token := range strings.Split(portsVal, ",") {
-						parts := strings.SplitN(strings.TrimSpace(token), ":", 2)
-						if len(parts) == 2 {
-							_, e1 := strconv.Atoi(strings.TrimSpace(parts[0]))
-							_, e2 := strconv.Atoi(strings.TrimSpace(parts[1]))
-							if e1 == nil && e2 == nil {
-								valid = true
-								break
+					valid := !hasPorts // UDP-only: skip TCP validation
+					if hasPorts {
+						for _, token := range strings.Split(portsVal, ",") {
+							parts := strings.SplitN(strings.TrimSpace(token), ":", 2)
+							if len(parts) == 2 {
+								_, e1 := strconv.Atoi(strings.TrimSpace(parts[0]))
+								_, e2 := strconv.Atoi(strings.TrimSpace(parts[1]))
+								if e1 == nil && e2 == nil {
+									valid = true
+									break
+								}
 							}
 						}
 					}

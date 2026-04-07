@@ -236,18 +236,22 @@ func (b *Backend) deploymentToTargetInfo(d appsv1.Deployment) (types.TargetInfo,
 		ann = map[string]string{}
 	}
 
-	portsStr, ok := ann["lazy-tcp-proxy.ports"]
-	if !ok || portsStr == "" {
-		return types.TargetInfo{}, fmt.Errorf("missing annotation lazy-tcp-proxy.ports")
+	portsStr := ann["lazy-tcp-proxy.ports"]
+	udpPortsStr := ann["lazy-tcp-proxy.udp-ports"]
+	if portsStr == "" && udpPortsStr == "" {
+		return types.TargetInfo{}, fmt.Errorf("missing annotation lazy-tcp-proxy.ports or lazy-tcp-proxy.udp-ports")
 	}
-	ports := types.ParsePortMappings("lazy-tcp-proxy.ports", portsStr)
-	if len(ports) == 0 {
-		return types.TargetInfo{}, fmt.Errorf("annotation lazy-tcp-proxy.ports contains no valid port mappings")
+	var ports []types.PortMapping
+	if portsStr != "" {
+		ports = types.ParsePortMappings("lazy-tcp-proxy.ports", portsStr)
+		if len(ports) == 0 {
+			return types.TargetInfo{}, fmt.Errorf("annotation lazy-tcp-proxy.ports contains no valid port mappings")
+		}
 	}
 
 	var udpPorts []types.PortMapping
-	if v := ann["lazy-tcp-proxy.udp-ports"]; v != "" {
-		udpPorts = types.ParsePortMappings("lazy-tcp-proxy.udp-ports", v)
+	if udpPortsStr != "" {
+		udpPorts = types.ParsePortMappings("lazy-tcp-proxy.udp-ports", udpPortsStr)
 	}
 
 	var allowList, blockList []net.IPNet

@@ -1,8 +1,8 @@
-# REQ-041: UDP-Only Config Validation Fix — Implementation Plan
+# REQ-043: UDP-Only Config Validation Fix — Implementation Plan
 
 **Requirement**: [2026-04-07-udp-only-config-validation.md](2026-04-07-udp-only-config-validation.md)
 **Date**: 2026-04-07
-**Status**: Approved
+**Status**: Implemented
 
 ## Implementation Steps
 
