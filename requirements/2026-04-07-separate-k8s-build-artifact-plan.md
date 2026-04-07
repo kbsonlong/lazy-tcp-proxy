@@ -2,7 +2,7 @@
 
 **Requirement**: [2026-04-07-separate-k8s-build-artifact.md](2026-04-07-separate-k8s-build-artifact.md)
 **Date**: 2026-04-07
-**Status**: Draft
+**Status**: Implemented
 
 ## Design Refinements
 

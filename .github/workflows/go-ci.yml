@@ -41,3 +41,9 @@ jobs:
       - name: test
         working-directory: lazy-tcp-proxy
         run: go test -race -count=1 ./...
+      - name: build (kubernetes)
+        working-directory: lazy-tcp-proxy
+        run: go build -tags kubernetes ./...
+      - name: test (kubernetes)
+        working-directory: lazy-tcp-proxy
+        run: go test -tags kubernetes -race -count=1 ./...

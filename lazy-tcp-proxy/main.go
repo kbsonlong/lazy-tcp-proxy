@@ -9,12 +9,9 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
-	"github.com/mountain-pass/lazy-tcp-proxy/internal/docker"
-	k8sbackend "github.com/mountain-pass/lazy-tcp-proxy/internal/k8s"
 	"github.com/mountain-pass/lazy-tcp-proxy/internal/proxy"
 	"github.com/mountain-pass/lazy-tcp-proxy/internal/scheduler"
 	"github.com/mountain-pass/lazy-tcp-proxy/internal/types"
@@ -105,17 +102,6 @@ type backendManager interface {
 	Shutdown(ctx context.Context)
 }
 
-func resolveBackend() (backendManager, error) {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("BACKEND"))) {
-	case "kubernetes", "k8s":
-		ns := os.Getenv("K8S_NAMESPACE")
-		log.Printf("backend: kubernetes (namespace=%q)", ns)
-		return k8sbackend.NewBackend(ns)
-	default:
-		log.Printf("backend: docker")
-		return docker.NewManager()
-	}
-}
 
 func main() {
 	startTime := time.Now()

@@ -3,7 +3,7 @@
 **Date Added**: 2026-04-04
 **Priority**: High
 **Status**: Completed
-**Superseded By**: REQ-048 (Separate Kubernetes Build Artifact) — the `BACKEND=kubernetes` env var
+**Superseded By**: REQ-049 (Separate Kubernetes Build Artifact) — the `BACKEND=kubernetes` env var
 selection mechanism is replaced by image-based selection: use `mountainpass/lazy-tcp-proxy-k8s`
 instead of setting `BACKEND=kubernetes`.
 

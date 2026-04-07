@@ -338,7 +338,7 @@ services:
   dependants are stopped.
 - Values are the `ContainerName` / Deployment name of each managed dependant.
 - If a dependant is already running/stopped, the cascade is a no-op.
-- Works with both `BACKEND=docker` and `BACKEND=kubernetes` (use Deployment
+- Works with both the Docker and Kubernetes images (use Deployment
   annotations instead of labels in k8s mode).
 
 ---
