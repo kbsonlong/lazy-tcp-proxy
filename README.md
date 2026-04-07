@@ -96,7 +96,7 @@ The proxy exposes a lightweight HTTP server for operational visibility.
 
 ### `GET /status`
 
-Returns a JSON array of all currently managed containers and their state.
+Returns a JSON array of all currently managed containers and their state, sorted alphabetically by container name (then by container ID as a tie-breaker).
 
 `last_active` shows when a container last handled traffic (falling back to the proxy start time if it has never been used). `last_active_relative` shows the same information in human-readable form, making it easy to spot long-idle containers at a glance — handy for identifying decommissioning candidates.
 
@@ -107,16 +107,6 @@ curl http://localhost:8080/status
 ```json
 [
   {
-    "container_id": "a1b2c3d4e5f6",
-    "container_name": "my-service",
-    "listen_port": 9000,
-    "target_port": 80,
-    "running": true,
-    "active_conns": 1,
-    "last_active": "2026-04-01T12:34:56Z",
-    "last_active_relative": "8 hours ago"
-  },
-  {
     "container_id": "b2c3d4e5f6a1",
     "container_name": "idle-service",
     "listen_port": 9001,
@@ -125,6 +115,16 @@ curl http://localhost:8080/status
     "active_conns": 0,
     "last_active": "2026-04-01T08:00:00Z",
     "last_active_relative": "3 days ago"
+  },
+  {
+    "container_id": "a1b2c3d4e5f6",
+    "container_name": "my-service",
+    "listen_port": 9000,
+    "target_port": 80,
+    "running": true,
+    "active_conns": 1,
+    "last_active": "2026-04-01T12:34:56Z",
+    "last_active_relative": "8 hours ago"
   }
 ]
 ```

@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"runtime/debug"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -152,6 +153,12 @@ func (s *ProxyServer) Snapshot() []TargetSnapshot {
 			LastActiveRelative: relativeTime(effective, now),
 		})
 	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ContainerName != out[j].ContainerName {
+			return out[i].ContainerName < out[j].ContainerName
+		}
+		return out[i].ContainerID < out[j].ContainerID
+	})
 	return out
 }
 
