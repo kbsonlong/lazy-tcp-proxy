@@ -22,13 +22,10 @@ spec:
       serviceAccountName: lazy-tcp-proxy
       containers:
         - name: lazy-tcp-proxy
-          image: ghcr.io/mountain-pass/lazy-tcp-proxy:latest
+          image: mountainpass/lazy-tcp-proxy-k8s:latest
           ports:
             - containerPort: 8080   # status/health endpoint
           env:
-            # Use the Kubernetes backend.
-            - name: BACKEND
-              value: "kubernetes"
             # Restrict discovery to a single namespace (optional).
             # Remove or set to "" to watch all namespaces.
             - name: K8S_NAMESPACE
