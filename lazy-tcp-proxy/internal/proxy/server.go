@@ -18,6 +18,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/sync/singleflight"
+
 	"github.com/mountain-pass/lazy-tcp-proxy/internal/types"
 )
 
@@ -140,7 +142,8 @@ type ProxyServer struct {
 	idleTimeout   time.Duration
 	startTime     time.Time
 	webhookClient *http.Client
-	sched         cronScheduler // nil if no scheduler configured
+	sched         cronScheduler   // nil if no scheduler configured
+	startGroup    singleflight.Group // deduplicates concurrent EnsureRunning calls per container
 }
 
 // NewServer creates a new ProxyServer backed by the given backend.
@@ -697,8 +700,14 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 		}()
 	}
 
-	if err := s.backend.EnsureRunning(ctx, ts.info.ContainerID); err != nil {
-		log.Printf("proxy: could not start container \033[33m%s\033[0m: %v", ts.info.ContainerName, err)
+	_, startErr, shared := s.startGroup.Do(ts.info.ContainerID, func() (any, error) {
+		return nil, s.backend.EnsureRunning(ctx, ts.info.ContainerID)
+	})
+	if shared {
+		log.Printf("proxy: joined in-flight startup for \033[33m%s\033[0m", ts.info.ContainerName)
+	}
+	if startErr != nil {
+		log.Printf("proxy: could not start container \033[33m%s\033[0m: %v", ts.info.ContainerName, startErr)
 		return
 	}
 	if ts.info.WebhookURL != "" {
@@ -786,8 +795,14 @@ func (s *ProxyServer) cascadeStart(upstream types.TargetInfo) {
 		}
 		log.Printf("proxy: cascade start: \033[33m%s\033[0m → \033[33m%s\033[0m",
 			upstream.ContainerName, depName)
-		if err := s.backend.EnsureRunning(s.ctx, depID); err != nil {
-			log.Printf("proxy: cascade start: error starting \033[33m%s\033[0m: %v", depName, err)
+		_, startErr, shared := s.startGroup.Do(depID, func() (any, error) {
+			return nil, s.backend.EnsureRunning(s.ctx, depID)
+		})
+		if shared {
+			log.Printf("proxy: cascade start: joined in-flight startup for \033[33m%s\033[0m", depName)
+		}
+		if startErr != nil {
+			log.Printf("proxy: cascade start: error starting \033[33m%s\033[0m: %v", depName, startErr)
 			continue
 		}
 		s.mu.RLock()

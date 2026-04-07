@@ -100,8 +100,14 @@ func (s *ProxyServer) startUDPFlow(uls *udpListenerState, clientAddr *net.UDPAdd
 		uls.mu.Unlock()
 	}
 
-	if err := s.backend.EnsureRunning(ctx, uls.info.ContainerID); err != nil {
-		log.Printf("proxy: udp: could not start container \033[33m%s\033[0m: %v", uls.info.ContainerName, err)
+	_, startErr, shared := s.startGroup.Do(uls.info.ContainerID, func() (any, error) {
+		return nil, s.backend.EnsureRunning(ctx, uls.info.ContainerID)
+	})
+	if shared {
+		log.Printf("proxy: udp: joined in-flight startup for \033[33m%s\033[0m", uls.info.ContainerName)
+	}
+	if startErr != nil {
+		log.Printf("proxy: udp: could not start container \033[33m%s\033[0m: %v", uls.info.ContainerName, startErr)
 		cleanup()
 		return
 	}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"net"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -785,4 +787,40 @@ func mustParseNets(entries ...string) []net.IPNet {
 		out = append(out, net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)})
 	}
 	return out
+}
+
+// ---- singleflight deduplication ----
+
+func TestStartGroup_DeduplicatesConcurrentEnsureRunning(t *testing.T) {
+	var callCount atomic.Int32
+	ready := make(chan struct{})
+
+	s := newTestServer()
+	s.backend = &mockBackend{
+		startFunc: func(_ string) {
+			callCount.Add(1)
+			<-ready // block until test releases
+		},
+	}
+
+	const N = 20
+	var wg sync.WaitGroup
+	wg.Add(N)
+	for range N {
+		go func() {
+			defer wg.Done()
+			_, _, _ = s.startGroup.Do("ctr-1", func() (any, error) {
+				return nil, s.backend.EnsureRunning(context.Background(), "ctr-1")
+			})
+		}()
+	}
+
+	// Give goroutines time to pile up inside startGroup.Do before releasing.
+	time.Sleep(20 * time.Millisecond)
+	close(ready)
+	wg.Wait()
+
+	if got := callCount.Load(); got != 1 {
+		t.Errorf("EnsureRunning called %d times, want exactly 1", got)
+	}
 }
