@@ -47,7 +47,6 @@ docker run -d \
 	mountainpass/lazy-tcp-proxy
 ```
 
-
 ---
 
 ## Container Label Configuration

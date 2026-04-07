@@ -9,11 +9,14 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/mountain-pass/lazy-tcp-proxy/internal/docker"
+	k8sbackend "github.com/mountain-pass/lazy-tcp-proxy/internal/k8s"
 	"github.com/mountain-pass/lazy-tcp-proxy/internal/proxy"
+	"github.com/mountain-pass/lazy-tcp-proxy/internal/types"
 )
 
 const (
@@ -90,6 +93,29 @@ func runStatusServer(ctx context.Context, srv *proxy.ProxyServer, port int) {
 	}()
 }
 
+// backendManager is the full interface required by main: it covers discovery,
+// event watching, the three proxy methods, and shutdown cleanup.
+type backendManager interface {
+	Discover(ctx context.Context, handler types.TargetHandler) error
+	WatchEvents(ctx context.Context, handler types.TargetHandler)
+	EnsureRunning(ctx context.Context, targetID string) error
+	StopContainer(ctx context.Context, targetID, targetName string) error
+	GetUpstreamHost(ctx context.Context, targetID, hint string) (string, error)
+	Shutdown(ctx context.Context)
+}
+
+func resolveBackend() (backendManager, error) {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("BACKEND"))) {
+	case "kubernetes", "k8s":
+		ns := os.Getenv("K8S_NAMESPACE")
+		log.Printf("backend: kubernetes (namespace=%q)", ns)
+		return k8sbackend.NewBackend(ns)
+	default:
+		log.Printf("backend: docker")
+		return docker.NewManager()
+	}
+}
+
 func main() {
 	startTime := time.Now()
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
@@ -108,10 +134,10 @@ func main() {
 		cancel()
 	}()
 
-	// Create the Docker manager
-	mgr, err := docker.NewManager()
+	// Select and initialise backend
+	mgr, err := resolveBackend()
 	if err != nil {
-		log.Fatalf("failed to create docker manager: %v", err)
+		log.Fatalf("failed to create backend: %v", err)
 	}
 
 	// Create the proxy server
@@ -134,18 +160,18 @@ func main() {
 		runStatusServer(ctx, srv, statusPort)
 	}
 
-	// Initial discovery of all matching containers
-	log.Println("performing initial container discovery...")
+	// Initial discovery of all matching targets
+	log.Println("performing initial target discovery...")
 	if err := mgr.Discover(ctx, srv); err != nil {
 		log.Printf("initial discovery error: %v", err)
 	}
 
-	// Watch Docker events for runtime changes
+	// Watch for runtime changes
 	go func() {
 		mgr.WatchEvents(ctx, srv)
 	}()
 
-	// Periodically stop idle containers
+	// Periodically stop idle targets
 	go func() {
 		srv.RunInactivityChecker(ctx, tick)
 	}()
@@ -153,6 +179,6 @@ func main() {
 	log.Println("lazy-tcp-proxy running; waiting for shutdown signal")
 	<-ctx.Done()
 	log.Println("lazy-tcp-proxy shutting down")
-	mgr.LeaveNetworks(context.Background())
+	mgr.Shutdown(context.Background())
 	log.Println("lazy-tcp-proxy stopped")
 }
