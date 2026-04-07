@@ -39,24 +39,21 @@ scripts:
       VERSION=1.`date +%Y%m%d`.`git rev-parse --short=8 HEAD`
       docker buildx build \
         --platform linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6 \
-        --tag mountainpass/lazy-tcp-proxy:$VERSION \
+        --tag mountainpass/lazy-tcp-proxy:docker-$VERSION \
         --tag mountainpass/lazy-tcp-proxy:latest \
         --push \
         .
-      docker pull mountainpass/lazy-tcp-proxy
 
   publish-k8s:
     $cmd: |
       cd lazy-tcp-proxy
       VERSION=1.`date +%Y%m%d`.`git rev-parse --short=8 HEAD`
       docker buildx build \
-        --platform linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6 \
+        --platform linux/amd64,linux/arm64 \
         --build-arg BUILD_TAGS=kubernetes \
-        --tag mountainpass/lazy-tcp-proxy-k8s:$VERSION \
-        --tag mountainpass/lazy-tcp-proxy-k8s:latest \
+        --tag mountainpass/lazy-tcp-proxy:k8s-$VERSION \
         --push \
         .
-      docker pull mountainpass/lazy-tcp-proxy-k8s
 
   ghsetup:
     $cmd: |
