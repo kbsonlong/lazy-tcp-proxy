@@ -331,6 +331,72 @@ func TestWatchEvents_DeletedTriggersRemove(t *testing.T) {
 	}
 }
 
+func TestWatchEvents_ModifiedScaleToZeroCallsContainerStopped(t *testing.T) {
+	// Start with a running deployment (ReadyReplicas=1), then receive a Modified
+	// event where ReadyReplicas drops to 0. ContainerStopped must be called.
+	running := fakeDeployment("default", "myapp", 1, map[string]string{"lazy-tcp-proxy.ports": "9000:80"})
+	stopped := fakeDeployment("default", "myapp", 0, map[string]string{"lazy-tcp-proxy.ports": "9000:80"})
+
+	fc := k8sfake.NewSimpleClientset(running)
+	fakeWatcher := watch.NewFake()
+	fc.PrependWatchReactor("deployments", func(action k8stesting.Action) (bool, watch.Interface, error) {
+		return true, fakeWatcher, nil
+	})
+
+	b := newBackendWithClient(fc, "default")
+	h := &captureHandler{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		b.WatchEvents(ctx, h)
+		close(done)
+	}()
+
+	fakeWatcher.Modify(stopped)
+	fakeWatcher.Stop()
+	cancel()
+	<-done
+
+	if len(h.stopped) == 0 {
+		t.Error("expected ContainerStopped to be called when deployment scales to zero")
+	}
+	if len(h.stopped) > 0 && h.stopped[0] != "default/myapp" {
+		t.Errorf("ContainerStopped: got %q, want %q", h.stopped[0], "default/myapp")
+	}
+}
+
+func TestWatchEvents_ModifiedStillRunningDoesNotCallContainerStopped(t *testing.T) {
+	// A Modified event where the deployment remains running must NOT call
+	// ContainerStopped.
+	d := fakeDeployment("default", "myapp", 1, map[string]string{"lazy-tcp-proxy.ports": "9000:80"})
+
+	fc := k8sfake.NewSimpleClientset(d)
+	fakeWatcher := watch.NewFake()
+	fc.PrependWatchReactor("deployments", func(action k8stesting.Action) (bool, watch.Interface, error) {
+		return true, fakeWatcher, nil
+	})
+
+	b := newBackendWithClient(fc, "default")
+	h := &captureHandler{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		b.WatchEvents(ctx, h)
+		close(done)
+	}()
+
+	fakeWatcher.Modify(d) // still running
+	fakeWatcher.Stop()
+	cancel()
+	<-done
+
+	if len(h.stopped) != 0 {
+		t.Errorf("expected ContainerStopped NOT to be called for a running deployment, got %v", h.stopped)
+	}
+}
+
 // Register the scale subresource with the fake client scheme so reactors can
 // recognise it. This init block ensures the autoscaling types are registered.
 func init() {

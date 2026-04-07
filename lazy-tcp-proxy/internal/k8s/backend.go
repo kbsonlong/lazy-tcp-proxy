@@ -157,6 +157,8 @@ func (b *Backend) WatchEvents(ctx context.Context, handler types.TargetHandler) 
 				handler.RegisterTarget(info)
 				if info.Running {
 					handler.ContainerStarted(id)
+				} else {
+					handler.ContainerStopped(id)
 				}
 				log.Printf("k8s: event: deployment updated: \033[33m%s\033[0m", d.Name)
 			case watch.Deleted:
@@ -165,17 +167,15 @@ func (b *Backend) WatchEvents(ctx context.Context, handler types.TargetHandler) 
 			}
 		}
 
-		// ResultChan closed — reconnect
+		// ResultChan closed normally — reset backoff and reconnect promptly.
+		// Do not increment backoff here: a normal channel close is not an error.
 		select {
 		case <-ctx.Done():
 			return
 		default:
-			log.Printf("k8s: watch channel closed; reconnecting in %s", backoff)
+			backoff = time.Second
+			log.Printf("k8s: watch channel closed; reconnecting...")
 			time.Sleep(backoff)
-			backoff *= 2
-			if backoff > maxBackoff {
-				backoff = maxBackoff
-			}
 		}
 	}
 }
