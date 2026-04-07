@@ -1,4 +1,4 @@
-# Docker Dependency Cascade
+# Dependency Cascade (lazy-tcp-proxy.dependants)
 
 **Date Added**: 2026-04-07
 **Priority**: Medium
@@ -6,85 +6,111 @@
 
 ## Problem Statement
 
-When a managed "hub" container (e.g. `selenium-hub`) starts or stops due to
-lazy-tcp-proxy's idle lifecycle management, its downstream dependents
+When a managed "hub" target (e.g. `selenium-hub`) starts or stops due to
+lazy-tcp-proxy's idle lifecycle management, its downstream dependants
 (e.g. `chromium`, `firefox`) are not automatically started or stopped.  This
 leaves orphaned running nodes when the hub is idle, and unready nodes when the
 hub is first woken by traffic.
 
+Docker Compose's `depends_on` addresses startup ordering but is a
+Docker-only concept and is not persisted in a way that is accessible at
+runtime on Kubernetes.  A backend-agnostic, explicit label/annotation is
+required.
+
 ## Functional Requirements
 
-1. **Dependency discovery** — When a managed container is registered, read its
-   `com.docker.compose.depends_on` label and record which upstream containers
-   it depends on.
-2. **Reverse-map** — Build and maintain a map of
-   `upstreamContainerName → []downstreamContainerID` from all registered
-   containers.
-3. **Start cascade** — When a managed upstream container starts (Docker `start`
-   event), immediately start all registered downstream containers that declare
-   a dependency on it.
-4. **Stop cascade** — When a managed upstream container stops (Docker `die`
-   event or idle-timeout), immediately stop all registered downstream
-   containers that declare a dependency on it.
-5. **Managed-only** — Cascade only applies when the upstream container is
-   itself a managed container (has `lazy-tcp-proxy.enabled=true`).  Events
-   for unmanaged containers are ignored.
-6. **No-op on correct state** — Starting an already-running dependent or
-   stopping an already-stopped dependent is a silent no-op (Docker handles
-   this gracefully; existing `EnsureRunning` / `StopContainer` behaviour is
-   preserved).
-7. **Hub is a full managed container** — The upstream hub container is proxied
-   exactly like any other managed container, including idle-timeout stop.
-   Idle stop of the hub cascades a stop to all dependents.
+1. **Explicit opt-in label** — The upstream (hub) container/deployment declares
+   its dependants via a single label (Docker) or annotation (Kubernetes):
+   ```
+   lazy-tcp-proxy.dependants=<name1>,<name2>,...
+   ```
+   Values are the `ContainerName` / Deployment names of managed downstream
+   targets.
+
+2. **Dependency stored in TargetInfo** — `Dependants []string` is added to
+   `types.TargetInfo` and populated by both the Docker manager and the k8s
+   backend when they parse labels/annotations.
+
+3. **Start cascade** — When a managed upstream target starts (Docker `start`
+   event; k8s `Modified` event with replicas > 0; or traffic-triggered
+   `EnsureRunning`), immediately start all registered dependant targets.
+
+4. **Stop cascade** — When a managed upstream target stops (idle timeout or
+   external stop event), immediately stop all registered dependant targets.
+
+5. **Managed-only** — Only targets registered with the proxy are eligible for
+   cascade. Unrecognised names in the `dependants` label are logged and
+   skipped.
+
+6. **No-op on correct state** — Starting an already-running dependant or
+   stopping an already-stopped dependant is a silent no-op.
+
+7. **Backend-agnostic** — Works identically with `BACKEND=docker` and
+   `BACKEND=kubernetes`.
 
 ## User Experience Requirements
 
-- **Zero extra configuration** — the `depends_on` relationship already exists
-  in `docker-compose.yml` and is reflected in the
-  `com.docker.compose.depends_on` container label.  No new labels are needed.
-- Log lines should clearly indicate cascade actions, naming both the trigger
-  container and the downstream container being started/stopped.
+- **Docker** — Add a label to the upstream container:
+  ```yaml
+  labels:
+    lazy-tcp-proxy.enabled: "true"
+    lazy-tcp-proxy.ports: "4444:4444"
+    lazy-tcp-proxy.dependants: "selenium-chromium,selenium-firefox"
+  ```
+
+- **Kubernetes** — Add an annotation to the upstream Deployment:
+  ```yaml
+  annotations:
+    lazy-tcp-proxy.ports: "4444:4444"
+    lazy-tcp-proxy.dependants: "selenium-chromium,selenium-firefox"
+  ```
+  (label `lazy-tcp-proxy.enabled: "true"` still required on the Deployment)
+
+- Log lines clearly indicate cascade actions:
+  ```
+  proxy: cascade start: selenium-hub → selenium-chromium
+  proxy: cascade start: selenium-hub → selenium-firefox
+  proxy: cascade stop:  selenium-hub → selenium-chromium
+  ```
 
 ## Technical Requirements
 
-- Read `com.docker.compose.depends_on` label during `containerToTargetInfo`.
-  Label format: `svc1:condition:required[,svc2:condition:required]`
-  — only the service name (first field) is needed.
-- The reverse dependency map lives in the proxy `Server` (or a new
-  `DependencyMap` type), protected by a mutex.
-- Cascade start is triggered from the `ContainerStarted` notification path
-  (after `EnsureRunning` succeeds) and from the Docker `start` event in
-  `WatchEvents`.
-- Cascade stop is triggered from the `StopContainer` call path (after stop
-  succeeds) and from the Docker `die` event in `WatchEvents`.
-- Cascade is **not** recursive in v1 (no transitive chains).
+- New field `Dependants []string` in `internal/types/types.go` `TargetInfo`.
+- New `ParseDependants(s string) []string` helper in `internal/types/types.go`.
+- Docker manager (`internal/docker/manager.go`): read optional label
+  `lazy-tcp-proxy.dependants`.
+- k8s backend (`internal/k8s/backend.go`): read optional annotation
+  `lazy-tcp-proxy.dependants`.
+- New method `ContainerStarted(containerID string)` added to
+  `types.TargetHandler` interface and implemented by `ProxyServer`.
+- Cascade maps live in `ProxyServer`, protected by the existing `s.mu`.
+- Cascade operations run in a goroutine to avoid blocking the event loop.
 
 ## Acceptance Criteria
 
-- [ ] Registering a container with `com.docker.compose.depends_on=hub:service_started:false`
-      populates the reverse map entry `hub → [container]`.
-- [ ] When the hub container starts, all downstream containers are started.
-- [ ] When the hub container stops (idle or manual), all downstream containers
-      are stopped.
-- [ ] If a downstream container is already running when a start cascade fires,
-      no error is logged.
-- [ ] If a downstream container is already stopped when a stop cascade fires,
-      no error is logged.
-- [ ] An unmanaged container starting/stopping does **not** trigger any cascade.
-- [ ] Log lines for cascade actions include the upstream container name and the
-      downstream container name.
+- [ ] A managed upstream target with `lazy-tcp-proxy.dependants=a,b` causes
+      `a` and `b` to be started when the upstream starts.
+- [ ] A managed upstream target with `lazy-tcp-proxy.dependants=a,b` causes
+      `a` and `b` to be stopped when the upstream stops (idle or external).
+- [ ] Already-running dependants are not double-started (no error logged).
+- [ ] Already-stopped dependants are not double-stopped (no error logged).
+- [ ] An unrecognised dependant name is logged and skipped; other valid
+      dependants are still processed.
+- [ ] Feature works with both `BACKEND=docker` and `BACKEND=kubernetes`.
+- [ ] README documents the `lazy-tcp-proxy.dependants` label/annotation.
 
 ## Dependencies
 
-- Existing `TargetInfo`, `Manager.EnsureRunning`, `Manager.StopContainer`,
-  `TargetHandler`, and `WatchEvents` in `internal/docker/manager.go`.
-- Existing `Server` in `internal/proxy/server.go`.
+- `internal/types/types.go` — `TargetInfo`, `TargetHandler`
+- `internal/docker/manager.go` — Docker label parsing
+- `internal/k8s/backend.go` — k8s annotation parsing
+- `internal/proxy/server.go` — `ProxyServer`, cascade logic
 
 ## Implementation Notes
 
-- `com.docker.compose.depends_on` may list multiple upstreams (comma-separated)
-  and each upstream may itself appear multiple times if multiple downstreams
-  depend on it.
-- The reverse map must be updated on `RegisterTarget` (add) and `RemoveTarget`
-  (remove).
-- Cascade operations should run in a goroutine to avoid blocking the event loop.
+- Cascade is **not** recursive in this version (no transitive chains).
+- The `lazy-tcp-proxy.dependants` label replaces any use of the Docker Compose
+  `com.docker.compose.depends_on` label — the latter is not read.
+- For k8s, `ContainerStarted` is called from `WatchEvents` on every
+  `Modified` event where `info.Running == true`; since `EnsureRunning` is
+  already idempotent, spurious calls (e.g. annotation-only updates) are safe.

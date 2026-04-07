@@ -1,4 +1,4 @@
-# Docker Dependency Cascade — Implementation Plan
+# Dependency Cascade — Implementation Plan
 
 **Requirement**: [2026-04-07-docker-dependency-cascade.md](2026-04-07-docker-dependency-cascade.md)
 **Date**: 2026-04-07
@@ -8,93 +8,100 @@
 
 ## Implementation Steps
 
-1. **Add `parseDependsOn` helper to `manager.go`**
-   Parse `com.docker.compose.depends_on` label value into a slice of upstream
-   service names. Format: `svc1:condition:required[,svc2:condition:required]`.
-   Only the first (service-name) field of each colon-separated token is kept.
-   Empty or blank values return nil.
+1. **Add `ParseDependants` helper to `internal/types/types.go`**
+   Parse a comma-separated list of target names (e.g.
+   `"selenium-chromium,selenium-firefox"`) into `[]string`. Whitespace is
+   trimmed; blank tokens are skipped.
 
-2. **Add `DependsOn []string` to `TargetInfo`** (`manager.go`)
-   New field alongside existing `AllowList`, `BlockList`, etc.
+2. **Add `Dependants []string` to `types.TargetInfo`** (`internal/types/types.go`)
+   New optional field alongside existing `AllowList`, `BlockList`, etc.
 
-3. **Populate `DependsOn` in `containerToTargetInfo`** (`manager.go`)
-   Read optional label `com.docker.compose.depends_on`; call `parseDependsOn`
-   if present. No error if the label is absent.
+3. **Add `ContainerStarted(containerID string)` to `types.TargetHandler`** (`internal/types/types.go`)
+   Parallel to the existing `ContainerStopped`. Signals that a managed target
+   has just transitioned to running, so the proxy server can cascade-start its
+   dependants.
 
-4. **Add `ContainerStarted(containerID string)` to `TargetHandler` interface** (`manager.go`)
-   Parallel to the existing `ContainerStopped`. Called after a managed
-   container's Docker `start` event is processed.
+4. **Parse `lazy-tcp-proxy.dependants` in the Docker manager** (`internal/docker/manager.go`)
+   In `containerToTargetInfo`, read the optional label
+   `lazy-tcp-proxy.dependants` and populate `info.Dependants` via
+   `types.ParseDependants`.
 
-5. **Call `handler.ContainerStarted` from `WatchEvents`** (`manager.go`)
+5. **Call `handler.ContainerStarted` from Docker `WatchEvents`** (`internal/docker/manager.go`)
    In the `"start"` case, after the existing `handler.RegisterTarget(info)`
    call, add `handler.ContainerStarted(msg.Actor.ID)`.
 
-6. **Add `depMap` and `containerDeps` to `ProxyServer`** (`server.go`)
+6. **Parse `lazy-tcp-proxy.dependants` in the k8s backend** (`internal/k8s/backend.go`)
+   In `deploymentToTargetInfo`, read the optional annotation
+   `lazy-tcp-proxy.dependants` and populate `info.Dependants` via
+   `types.ParseDependants`.
+
+7. **Call `handler.ContainerStarted` from k8s `WatchEvents`** (`internal/k8s/backend.go`)
+   In the `watch.Added` / `watch.Modified` case, after `handler.RegisterTarget(info)`,
+   add `handler.ContainerStarted(id)` when `info.Running == true`. Because
+   `EnsureRunning` is already idempotent, spurious calls on annotation-only
+   updates are harmless.
+
+8. **Add `nameToID` lookup map to `ProxyServer`** (`internal/proxy/server.go`)
    ```go
-   depMap       map[string][]string // upstreamName → []downstreamContainerID
-   containerDeps map[string][]string // containerID  → []upstreamNames it depends on
+   nameToID map[string]string // ContainerName → ContainerID
    ```
-   Both initialised to empty maps in `NewServer`.
+   Initialised in `NewServer`. Updated in `RegisterTarget` (add/overwrite) and
+   `RemoveTarget` (delete). Enables O(1) cascade lookup by dependant name.
 
-7. **Update `RegisterTarget` to maintain the dependency maps** (`server.go`)
-   At the end of `RegisterTarget`, after all port listeners are registered:
-   - If `containerID` is already in `containerDeps`, remove its old
-     `depMap` entries (handles re-registration with changed deps).
-   - For each name in `info.DependsOn`, append `info.ContainerID` to
-     `depMap[name]` (deduplicating).
-   - Overwrite `containerDeps[info.ContainerID]` with `info.DependsOn`.
+9. **Update `RegisterTarget` to maintain `nameToID`** (`internal/proxy/server.go`)
+   After the existing port-listener registration, add:
+   ```go
+   s.nameToID[info.ContainerName] = info.ContainerID
+   ```
 
-8. **Update `RemoveTarget` to clean up dependency maps** (`server.go`)
-   After deleting port listeners, for each upstream name in
-   `containerDeps[containerID]`, remove `containerID` from
-   `depMap[upstreamName]`. Then delete `containerDeps[containerID]`.
+10. **Update `RemoveTarget` to maintain `nameToID`** (`internal/proxy/server.go`)
+    After closing listeners, delete `s.nameToID[ts.info.ContainerName]` for
+    each removed target (only when no other port mappings for that container
+    remain).
 
-9. **Implement `ProxyServer.ContainerStarted`** (`server.go`)
-   - Under read-lock, find the `ContainerName` for the given `containerID`
-     across `s.targets` (or `s.udpTargets`).
-   - If found and there are entries in `depMap[name]`, launch
-     `go s.cascadeStart(name)`.
+11. **Implement `ProxyServer.ContainerStarted`** (`internal/proxy/server.go`)
+    - Under read-lock, find the `TargetInfo` for the given containerID (scan
+      `s.targets` for a matching ID).
+    - If the target has non-empty `Dependants`, launch
+      `go s.cascadeStart(info)`.
 
-10. **Update `ProxyServer.ContainerStopped` to cascade stop** (`server.go`)
-    After the existing `running = false` loop, look up the container name
-    from any matching target and launch `go s.cascadeStop(name)`.
+12. **Update `ProxyServer.ContainerStopped` to cascade stop** (`internal/proxy/server.go`)
+    After the existing `running = false` loop, find the `TargetInfo` for the
+    container and launch `go s.cascadeStop(info)` if it has `Dependants`.
 
-11. **Update `checkInactivity` to cascade stop** (`server.go`)
-    After a successful `s.docker.StopContainer(...)` call inside the
-    `e.allIdle` block, add `go s.cascadeStop(e.name)`.
-    (Both paths — idle timeout and external die event — are now covered by
-    steps 10 and 11.)
+13. **Update `checkInactivity` to cascade stop** (`internal/proxy/server.go`)
+    After a successful `s.backend.StopContainer(...)` call inside the
+    `e.allIdle` block, store the stopped container's `TargetInfo` and launch
+    `go s.cascadeStop(info)`.
+    *(Covers the idle-timeout path; step 12 covers the external-stop path.)*
 
-12. **Add `cascadeStart(upstreamName string)` to `ProxyServer`** (`server.go`)
-    ```
-    func (s *ProxyServer) cascadeStart(upstreamName string)
-    ```
-    - Under read-lock, collect the []containerID from `depMap[upstreamName]`.
-    - For each downstream containerID: find its name from targets, log the
-      action, call `s.docker.EnsureRunning(s.ctx, containerID)`, and on
-      success update `running = true` in all matching target/UDP states.
+14. **Add `cascadeStart(upstream types.TargetInfo)` to `ProxyServer`** (`internal/proxy/server.go`)
+    For each name in `upstream.Dependants`:
+    - Under read-lock, resolve `name → containerID` via `s.nameToID`.
+    - If not found, log a warning and skip.
+    - Log: `proxy: cascade start: <upstream> → <dependant>`.
+    - Call `s.backend.EnsureRunning(s.ctx, depID)`.
+    - On success, update `running = true` for all matching target/UDP states.
 
-13. **Add `cascadeStop(upstreamName string)` to `ProxyServer`** (`server.go`)
-    ```
-    func (s *ProxyServer) cascadeStop(upstreamName string)
-    ```
-    - Under read-lock, collect []containerID from `depMap[upstreamName]`.
-    - For each downstream containerID: find its name and check `running`; skip
-      if already stopped. Log the action, call
-      `s.docker.StopContainer(s.ctx, containerID, name)`, and on success update
-      `running = false` in all matching target/UDP states.
+15. **Add `cascadeStop(upstream types.TargetInfo)` to `ProxyServer`** (`internal/proxy/server.go`)
+    For each name in `upstream.Dependants`:
+    - Under read-lock, resolve `name → containerID` via `s.nameToID`.
+    - If not found, log a warning and skip.
+    - If all matching target/UDP states already have `running = false`, skip (no-op).
+    - Log: `proxy: cascade stop: <upstream> → <dependant>`.
+    - Call `s.backend.StopContainer(s.ctx, depID, name)`.
+    - On success, update `running = false` for all matching target/UDP states.
 
-14. **Add unit tests for `parseDependsOn`** (`manager_test.go`)
+16. **Update `README.md`**
+    Document the `lazy-tcp-proxy.dependants` label/annotation under the
+    configuration reference table, with Docker and Kubernetes examples.
+
+17. **Add unit tests for `ParseDependants`** (`internal/types/types_test.go`)
     See test table below.
 
-15. **Add unit tests for depMap management** (`server_test.go`)
-    - `RegisterTarget` populates `depMap` from `DependsOn`.
-    - `RegisterTarget` handles re-registration (old entries removed, new added).
-    - `RemoveTarget` cleans up depMap and containerDeps.
-
-16. **Add unit tests for cascade start / stop** (`server_test.go`)
-    Uses extended `mockDockerManager` with a `startFunc` field.
-    See test table below.
+18. **Add unit tests for cascade start / stop** (`internal/proxy/server_test.go`)
+    Extend `mockBackend` with a `startFunc` field to observe `EnsureRunning`
+    calls. Add cascade test cases (see table below).
 
 ---
 
@@ -102,26 +109,56 @@
 
 | File | Action | Description |
 |------|--------|-------------|
-| `internal/docker/manager.go` | Modify | Add `DependsOn` to `TargetInfo`; add `parseDependsOn`; extend `TargetHandler`; trigger `ContainerStarted` in `WatchEvents` |
-| `internal/proxy/server.go` | Modify | Add `depMap`/`containerDeps`; `RegisterTarget`/`RemoveTarget` maintenance; implement `ContainerStarted`; update `ContainerStopped`; update `checkInactivity`; add `cascadeStart`/`cascadeStop` |
-| `internal/docker/manager_test.go` | Modify | Add `parseDependsOn` unit tests |
-| `internal/proxy/server_test.go` | Modify | Extend `mockDockerManager` with `startFunc`; add depMap and cascade unit tests |
+| `internal/types/types.go` | Modify | Add `Dependants []string` to `TargetInfo`; add `ParseDependants`; add `ContainerStarted` to `TargetHandler` |
+| `internal/types/types_test.go` | Modify | Add `ParseDependants` unit tests |
+| `internal/docker/manager.go` | Modify | Parse `lazy-tcp-proxy.dependants` label; call `ContainerStarted` from `WatchEvents` |
+| `internal/k8s/backend.go` | Modify | Parse `lazy-tcp-proxy.dependants` annotation; call `ContainerStarted` from `WatchEvents` |
+| `internal/proxy/server.go` | Modify | Add `nameToID`; maintain in `RegisterTarget`/`RemoveTarget`; implement `ContainerStarted`; update `ContainerStopped` and `checkInactivity`; add `cascadeStart`/`cascadeStop` |
+| `internal/proxy/server_test.go` | Modify | Extend mock with `startFunc`; add cascade unit tests |
+| `README.md` | Modify | Document `lazy-tcp-proxy.dependants` label/annotation |
+
+---
+
+## API Contracts
+
+### `types.TargetHandler` (updated interface)
+
+```go
+type TargetHandler interface {
+    RegisterTarget(info TargetInfo)
+    RemoveTarget(containerID string)
+    ContainerStopped(containerID string)
+    ContainerStarted(containerID string)   // NEW
+}
+```
+
+### `types.TargetInfo` (updated struct, new field)
+
+```go
+type TargetInfo struct {
+    // ... existing fields ...
+    Dependants []string // names of managed targets to start/stop alongside this one
+}
+```
+
+### Label / Annotation
+
+| Backend | Key | Example value |
+|---------|-----|---------------|
+| Docker (label) | `lazy-tcp-proxy.dependants` | `selenium-chromium,selenium-firefox` |
+| Kubernetes (annotation) | `lazy-tcp-proxy.dependants` | `selenium-chromium,selenium-firefox` |
 
 ---
 
 ## Key Code Snippets
 
-### `parseDependsOn`
+### `ParseDependants`
 
 ```go
-// parseDependsOn parses the com.docker.compose.depends_on label value into a
-// slice of upstream service names. Each token has the form
-// "service:condition:required"; only the service name is extracted.
-func parseDependsOn(s string) []string {
+func ParseDependants(s string) []string {
     var names []string
     for _, token := range strings.Split(s, ",") {
-        parts := strings.SplitN(strings.TrimSpace(token), ":", 2)
-        name := strings.TrimSpace(parts[0])
+        name := strings.TrimSpace(token)
         if name != "" {
             names = append(names, name)
         }
@@ -133,65 +170,36 @@ func parseDependsOn(s string) []string {
 ### `cascadeStart` sketch
 
 ```go
-func (s *ProxyServer) cascadeStart(upstreamName string) {
-    s.mu.RLock()
-    ids := append([]string(nil), s.depMap[upstreamName]...)
-    // collect name lookup while holding lock
-    nameFor := map[string]string{}
-    for _, id := range ids {
-        for _, ts := range s.targets {
-            if ts.info.ContainerID == id {
-                nameFor[id] = ts.info.ContainerName
-            }
-        }
-    }
-    s.mu.RUnlock()
+func (s *ProxyServer) cascadeStart(upstream types.TargetInfo) {
+    for _, depName := range upstream.Dependants {
+        s.mu.RLock()
+        depID, ok := s.nameToID[depName]
+        s.mu.RUnlock()
 
-    for _, id := range ids {
-        name := nameFor[id]
-        log.Printf("proxy: cascade start: \033[33m%s\033[0m → \033[33m%s\033[0m", upstreamName, name)
-        if err := s.docker.EnsureRunning(s.ctx, id); err != nil {
-            log.Printf("proxy: cascade start: error starting \033[33m%s\033[0m: %v", name, err)
+        if !ok {
+            log.Printf("proxy: cascade start: \033[33m%s\033[0m → %q not registered, skipping",
+                upstream.ContainerName, depName)
+            continue
+        }
+        log.Printf("proxy: cascade start: \033[33m%s\033[0m → \033[33m%s\033[0m",
+            upstream.ContainerName, depName)
+
+        if err := s.backend.EnsureRunning(s.ctx, depID); err != nil {
+            log.Printf("proxy: cascade start: error starting \033[33m%s\033[0m: %v", depName, err)
             continue
         }
         s.mu.RLock()
         for _, ts := range s.targets {
-            if ts.info.ContainerID == id { ts.running = true }
+            if ts.info.ContainerID == depID {
+                ts.running = true
+            }
         }
         for _, uls := range s.udpTargets {
-            if uls.info.ContainerID == id { uls.running = true }
+            if uls.info.ContainerID == depID {
+                uls.running = true
+            }
         }
         s.mu.RUnlock()
-    }
-}
-```
-
-### `RegisterTarget` depMap update (append to end of method, before return)
-
-```go
-// Update dependency maps.
-s.mu is already held (write lock).
-// Remove stale entries for this container.
-for _, upName := range s.containerDeps[info.ContainerID] {
-    prev := s.depMap[upName]
-    filtered := prev[:0]
-    for _, cid := range prev {
-        if cid != info.ContainerID {
-            filtered = append(filtered, cid)
-        }
-    }
-    s.depMap[upName] = filtered
-}
-// Add new entries.
-s.containerDeps[info.ContainerID] = info.DependsOn
-for _, upName := range info.DependsOn {
-    // deduplicate
-    already := false
-    for _, cid := range s.depMap[upName] {
-        if cid == info.ContainerID { already = true; break }
-    }
-    if !already {
-        s.depMap[upName] = append(s.depMap[upName], info.ContainerID)
     }
 }
 ```
@@ -200,46 +208,38 @@ for _, upName := range info.DependsOn {
 
 ## Unit Tests
 
-### `parseDependsOn` (manager_test.go)
+### `ParseDependants` (`types_test.go`)
 
 | Test | Input | Expected |
 |------|-------|----------|
-| Single dependency | `"hub:service_started:false"` | `["hub"]` |
-| Multiple dependencies | `"hub:service_started:false,db:service_healthy:true"` | `["hub", "db"]` |
-| Whitespace around token | `" hub : service_started : false "` | `["hub"]` |
+| Single name | `"selenium-chromium"` | `["selenium-chromium"]` |
+| Multiple names | `"a,b,c"` | `["a","b","c"]` |
+| Whitespace trimmed | `" a , b "` | `["a","b"]` |
 | Empty string | `""` | `nil` |
-| Blank token skipped | `",hub:service_started:false"` | `["hub"]` |
+| Blank token skipped | `",a,"` | `["a"]` |
 
-### depMap management (server_test.go)
-
-| Test | Setup | Expected |
-|------|-------|----------|
-| RegisterTarget populates depMap | Register container with DependsOn=["hub"] | depMap["hub"] == [containerID] |
-| RegisterTarget deduplicates | Register same container twice | depMap["hub"] has no duplicates |
-| RegisterTarget re-register removes old dep | Register with DependsOn=["hub"], re-register with DependsOn=["db"] | depMap["hub"] empty, depMap["db"]==[containerID] |
-| RemoveTarget cleans depMap | Register then remove | depMap["hub"] empty, containerDeps empty |
-
-### Cascade (server_test.go)
+### Cascade (`server_test.go`)
 
 | Test | Setup | Expected |
 |------|-------|----------|
-| cascadeStart starts downstream | hub→[chrome], call ContainerStarted(hubID) | EnsureRunning called with chromeID |
-| cascadeStart no-op if no dependents | ContainerStarted for container with no dependents | EnsureRunning not called |
-| cascadeStop stops downstream | hub→[chrome], chrome running, call cascadeStop("hub") | StopContainer called with chromeID |
-| cascadeStop skips already-stopped | hub→[chrome], chrome not running | StopContainer not called |
-| cascadeStop triggered from checkInactivity | hub idle, hub→[chrome] | after hub stop, StopContainer called for chrome |
-| unmanaged container ContainerStarted | ContainerStarted for unknown containerID | no cascade |
+| cascadeStart starts dependant | hub Dependants=["chrome"], chrome registered; ContainerStarted(hubID) | EnsureRunning called with chromeID |
+| cascadeStart skips unknown name | Dependants=["unknown"] | no EnsureRunning call, warning logged |
+| cascadeStart no-op if no dependants | ContainerStarted for container with empty Dependants | no EnsureRunning call |
+| cascadeStop stops dependant | hub Dependants=["chrome"], chrome running; ContainerStopped(hubID) | StopContainer called with chromeID |
+| cascadeStop skips already-stopped | chrome not running | no StopContainer call |
+| cascadeStop triggered by checkInactivity | hub idle, Dependants=["chrome"] | after hub stop, StopContainer called for chrome |
+| ContainerStarted for unknown ID | containerID not in targets | no cascade, no panic |
 
 ---
 
 ## Risks & Open Questions
 
-- **Race on `running` field**: `cascadeStart`/`cascadeStop` update `ts.running`
-  under `RLock` (acceptable since `running` is a plain bool and we write under
-  read-lock as the rest of the code does). If this becomes a correctness concern
-  a future refactor can promote it to `atomic.Bool`.
-- **Transitive chains**: not implemented in this version. A future REQ can add
-  recursion with cycle detection.
-- **External start/stop**: if the hub is started externally (not via proxy
-  traffic), the Docker `start` event triggers `ContainerStarted` → cascade.
-  This is correct behaviour.
+- **`TargetHandler` interface change**: adding `ContainerStarted` is a breaking
+  change for any external implementors. The existing test mocks must be updated.
+  No external users are known so impact is limited to internal test files.
+- **k8s spurious start events**: every `Modified` event triggers
+  `ContainerStarted`; cascade calls `EnsureRunning` on dependants that may
+  already be running. Safe (idempotent) but adds extra k8s API calls. A future
+  optimisation could track previous replica count and only fire on 0→1
+  transitions.
+- **Transitive chains**: not implemented in this version.
