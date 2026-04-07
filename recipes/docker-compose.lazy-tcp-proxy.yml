@@ -1,0 +1,24 @@
+services:
+  lazy-tcp-proxy:
+    container_name: lazy-tcp-proxy
+    image: mountainpass/lazy-tcp-proxy
+    pull_policy: always
+    environment:
+      - POLL_INTERVAL_SECS=10
+      - IDLE_TIMEOUT_SECS=30
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "445:445" # samba
+      - "5432:5432" # postgres
+      - "8080:8080" # status endpoint
+      - "27017:27017" # mongodb
+      - "32400:32400" # plex
+      - "25565:25565" # minecraft
+      - "4444:4444" # selenium
+      - "7900:7900" # vnc (selenium)
+      - "9000-9099:9000-9099" # general purpose (tcp)
+      - "9000-9099:9000-9099/udp" # general purpose (udp)
+    restart: always
+
+  
