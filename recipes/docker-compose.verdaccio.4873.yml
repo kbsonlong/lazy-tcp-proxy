@@ -1,0 +1,12 @@
+services:
+  verdaccio:
+    image: verdaccio/verdaccio
+    container_name: verdaccio
+    volumes:
+      - verdaccio:/verdaccio/storage
+    labels:
+      - "lazy-tcp-proxy.enabled=true"
+      - "lazy-tcp-proxy.ports=4873:4873"
+
+volumes:
+  verdaccio:

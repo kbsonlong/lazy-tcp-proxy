@@ -1,0 +1,12 @@
+services:
+  registry:
+    image: registry:2
+    container_name: registry
+    volumes:
+      - registry:/var/lib/registry
+    labels:
+      - "lazy-tcp-proxy.enabled=true"
+      - "lazy-tcp-proxy.ports=5000:5000"
+
+volumes:
+  registry:
