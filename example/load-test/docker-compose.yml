@@ -1,0 +1,42 @@
+services:
+
+  lazy-tcp-proxy:
+    image: mountainpass/lazy-tcp-proxy
+    container_name: load-test-proxy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "5201:5201"      # TCP load test
+      - "5202:5202"      # UDP load test — TCP control channel
+      - "5202:5202/udp"  # UDP load test — UDP data channel
+      - "8080:8080"      # status endpoint
+    environment:
+      IDLE_TIMEOUT_SECS: "300"
+      POLL_INTERVAL_SECS: "5"
+    restart: unless-stopped
+
+  iperf3-tcp:
+    image: networkstatic/iperf3
+    container_name: load-test-iperf3-tcp
+    command: ["-s"]
+    networks:
+      - load-test-net
+    labels:
+      lazy-tcp-proxy.enabled: "true"
+      lazy-tcp-proxy.ports: "5201:5201"
+
+  iperf3-udp:
+    image: networkstatic/iperf3
+    container_name: load-test-iperf3-udp
+    command: ["-s"]
+    networks:
+      - load-test-net
+    labels:
+      lazy-tcp-proxy.enabled: "true"
+      lazy-tcp-proxy.ports: "5202:5201"
+      lazy-tcp-proxy.udp-ports: "5202:5201"
+
+networks:
+  load-test-net:
+    driver: bridge
+    internal: true
