@@ -1,0 +1,20 @@
+services:
+  n8n:
+    image: n8nio/n8n
+    container_name: n8n
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:-password}
+    volumes:
+      - n8n:/home/node/.n8n
+    labels:
+      - "lazy-tcp-proxy.enabled=true"
+      - "lazy-tcp-proxy.ports=5678:5678"
+      # n8n executes workflows on a schedule - use cron labels so it runs
+      # during business hours and is exempt from idle-timeout shutdown
+      - "lazy-tcp-proxy.cron-start=0 8 * * 1-5"
+      - "lazy-tcp-proxy.cron-stop=0 18 * * 1-5"
+
+volumes:
+  n8n:

@@ -1,0 +1,7 @@
+services:
+  memcached:
+    image: memcached:alpine
+    container_name: memcached
+    labels:
+      - "lazy-tcp-proxy.enabled=true"
+      - "lazy-tcp-proxy.ports=11211:11211"

@@ -1,0 +1,16 @@
+services:
+  uptime-kuma:
+    image: louislam/uptime-kuma
+    container_name: uptime-kuma
+    volumes:
+      - uptime-kuma:/app/data
+    labels:
+      - "lazy-tcp-proxy.enabled=true"
+      - "lazy-tcp-proxy.ports=3001:3001"
+      # uptime-kuma continuously polls monitored services - use cron labels
+      # so it runs during business hours and is exempt from idle-timeout shutdown
+      - "lazy-tcp-proxy.cron-start=0 8 * * 1-5"
+      - "lazy-tcp-proxy.cron-stop=0 18 * * 1-5"
+
+volumes:
+  uptime-kuma:
