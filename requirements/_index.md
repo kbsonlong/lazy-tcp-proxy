@@ -56,4 +56,4 @@
 | REQ-052 | Load Tests (TCP and UDP Proxy)                                          | Medium | Completed   | 2026-04-07 | [2026-04-07-load-tests-tcp-udp.md](2026-04-07-load-tests-tcp-udp.md) |
 | REQ-053 | Platform Integration Documentation (Podman, Unraid, TrueNAS SCALE)     | Medium | Completed   | 2026-04-08 | [2026-04-08-platform-integration-docs.md](2026-04-08-platform-integration-docs.md) |
 | REQ-054 | Docker Compose Recipes for Popular Service Images                       | Medium | Completed   | 2026-04-08 | [2026-04-08-docker-recipes-popular-services.md](2026-04-08-docker-recipes-popular-services.md) |
-| REQ-055 | Fix UDP First Packet Drop on Container Startup                          | High   | Planned     | 2026-04-09 | [2026-04-09-fix-udp-first-packet-drop.md](2026-04-09-fix-udp-first-packet-drop.md) |
+| REQ-055 | Fix UDP First Packet Drop on Container Startup                          | High   | In Progress | 2026-04-09 | [2026-04-09-fix-udp-first-packet-drop.md](2026-04-09-fix-udp-first-packet-drop.md) |
