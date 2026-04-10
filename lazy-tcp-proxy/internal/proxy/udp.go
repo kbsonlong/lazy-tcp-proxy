@@ -14,6 +14,11 @@ import (
 
 const udpBufSize = 65535
 
+const (
+	udpFirstDatagramRetries  = 10
+	udpFirstDatagramInterval = 500 * time.Millisecond
+)
+
 // udpFlow represents one active client→container UDP flow.
 type udpFlow struct {
 	clientAddr   *net.UDPAddr
@@ -150,16 +155,58 @@ func (s *ProxyServer) startUDPFlow(uls *udpListenerState, clientAddr *net.UDPAdd
 	uls.lastActive = time.Now()
 	uls.mu.Unlock()
 
-	uls.activeFlows.Add(1)
-	go s.udpUpstreamReadLoop(uls, flow)
-
 	if uls.info.WebhookURL != "" {
 		go s.fireWebhook(uls.info.WebhookURL, "udp_flow_start", uls.info.ContainerID, uls.info.ContainerName, connID, clientAddr.IP.String(), clientAddr.Port)
 	}
 
-	if _, err := upstreamConn.Write(firstDatagram); err != nil {
-		log.Printf("proxy: udp: write first datagram to \033[33m%s\033[0m failed: %v", uls.info.ContainerName, err)
+	// Send the first datagram with retries: the container process may not be ready
+	// to handle packets immediately after EnsureRunning returns (e.g. pihole's DNS
+	// daemon needs time to bind). For request/response protocols we send, wait
+	// briefly for a response, and forward it; on timeout we retry.
+	// udpUpstreamReadLoop is NOT started until this loop exits so there is never
+	// a concurrent reader on upstreamConn.
+	buf := make([]byte, udpBufSize)
+	for attempt := 1; attempt <= udpFirstDatagramRetries; attempt++ {
+		if _, err := upstreamConn.Write(firstDatagram); err != nil {
+			log.Printf("proxy: udp: write first datagram to \033[33m%s\033[0m failed: %v", uls.info.ContainerName, err)
+			break
+		}
+		if err := upstreamConn.SetReadDeadline(time.Now().Add(udpFirstDatagramInterval)); err != nil {
+			log.Printf("proxy: udp: set deadline for \033[33m%s\033[0m failed: %v", uls.info.ContainerName, err)
+			break
+		}
+		n, readErr := upstreamConn.Read(buf)
+		if err := upstreamConn.SetReadDeadline(time.Time{}); err != nil {
+			log.Printf("proxy: udp: clear deadline for \033[33m%s\033[0m failed: %v", uls.info.ContainerName, err)
+		}
+		if readErr == nil {
+			// Service responded — forward this first reply to the client.
+			if _, werr := uls.listenConn.WriteToUDP(buf[:n], clientAddr); werr != nil {
+				log.Printf("proxy: udp: write initial response to \033[36m%s\033[0m failed: %v", clientAddr, werr)
+			}
+			uls.mu.Lock()
+			flow.lastActive = time.Now()
+			uls.lastActive = time.Now()
+			uls.mu.Unlock()
+			break
+		}
+		if netErr, ok := readErr.(net.Error); ok && netErr.Timeout() {
+			if attempt < udpFirstDatagramRetries {
+				log.Printf("proxy: udp: upstream \033[33m%s\033[0m not ready, retrying (%d/%d)…",
+					uls.info.ContainerName, attempt, udpFirstDatagramRetries)
+				continue
+			}
+			log.Printf("proxy: udp: upstream \033[33m%s\033[0m did not respond after %d attempts; continuing",
+				uls.info.ContainerName, udpFirstDatagramRetries)
+			break
+		}
+		// Non-timeout read error (connection closed, etc.)
+		log.Printf("proxy: udp: upstream read error for \033[33m%s\033[0m: %v", uls.info.ContainerName, readErr)
+		break
 	}
+
+	uls.activeFlows.Add(1)
+	go s.udpUpstreamReadLoop(uls, flow)
 }
 
 // udpUpstreamReadLoop reads response datagrams from the container and forwards
