@@ -1,0 +1,38 @@
+---
+# ServiceAccount for the lazy-tcp-proxy pod.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: lazy-tcp-proxy
+  namespace: lazy-tcp-proxy
+---
+# ClusterRole grants read + scale access to Deployments and read access to Pods
+# across all namespaces. Use a Role instead if you scope K8S_NAMESPACE to a
+# single namespace and want tighter permissions.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: lazy-tcp-proxy
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    verbs: ["get", "update"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: lazy-tcp-proxy
+subjects:
+  - kind: ServiceAccount
+    name: lazy-tcp-proxy
+    namespace: lazy-tcp-proxy
+roleRef:
+  kind: ClusterRole
+  name: lazy-tcp-proxy
+  apiGroup: rbac.authorization.k8s.io

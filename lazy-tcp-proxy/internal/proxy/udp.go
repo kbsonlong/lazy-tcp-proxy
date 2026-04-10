@@ -9,16 +9,22 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/mountain-pass/lazy-tcp-proxy/internal/docker"
+	"github.com/mountain-pass/lazy-tcp-proxy/internal/types"
 )
 
 const udpBufSize = 65535
+
+const (
+	udpFirstDatagramRetries  = 10
+	udpFirstDatagramInterval = 500 * time.Millisecond
+)
 
 // udpFlow represents one active client→container UDP flow.
 type udpFlow struct {
 	clientAddr   *net.UDPAddr
 	upstreamConn *net.UDPConn
 	lastActive   time.Time
+	connectionID string // UUID v4 correlating udp_flow_start and udp_flow_end events
 }
 
 // udpListenerState holds the shared inbound UDP socket and all active flows
@@ -26,9 +32,10 @@ type udpFlow struct {
 type udpListenerState struct {
 	listenConn  *net.UDPConn
 	targetPort  int
-	info        docker.TargetInfo
+	info        types.TargetInfo
 	lastActive  time.Time
 	activeFlows atomic.Int32
+	idleTimeout *time.Duration // nil = use server default
 	running     bool
 	removed     bool
 	mu          sync.Mutex
@@ -98,24 +105,30 @@ func (s *ProxyServer) startUDPFlow(uls *udpListenerState, clientAddr *net.UDPAdd
 		uls.mu.Unlock()
 	}
 
-	if err := s.docker.EnsureRunning(ctx, uls.info.ContainerID); err != nil {
-		log.Printf("proxy: udp: could not start container \033[33m%s\033[0m: %v", uls.info.ContainerName, err)
+	_, startErr, shared := s.startGroup.Do(uls.info.ContainerID, func() (any, error) {
+		return nil, s.backend.EnsureRunning(ctx, uls.info.ContainerID)
+	})
+	if shared {
+		log.Printf("proxy: udp: joined in-flight startup for \033[33m%s\033[0m", uls.info.ContainerName)
+	}
+	if startErr != nil {
+		log.Printf("proxy: udp: could not start container \033[33m%s\033[0m: %v", uls.info.ContainerName, startErr)
 		cleanup()
 		return
 	}
 
-	var preferNet string
+	var hint string
 	if len(uls.info.NetworkIDs) > 0 {
-		preferNet = uls.info.NetworkIDs[0]
+		hint = uls.info.NetworkIDs[0]
 	}
-	ip, err := s.docker.GetContainerIP(ctx, uls.info.ContainerID, preferNet)
+	host, err := s.backend.GetUpstreamHost(ctx, uls.info.ContainerID, hint)
 	if err != nil {
-		log.Printf("proxy: udp: could not get IP for \033[33m%s\033[0m: %v", uls.info.ContainerName, err)
+		log.Printf("proxy: udp: could not get upstream host for \033[33m%s\033[0m: %v", uls.info.ContainerName, err)
 		cleanup()
 		return
 	}
 
-	upstreamAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", ip, uls.targetPort))
+	upstreamAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", host, uls.targetPort))
 	if err != nil {
 		log.Printf("proxy: udp: could not resolve upstream addr for \033[33m%s\033[0m: %v", uls.info.ContainerName, err)
 		cleanup()
@@ -128,10 +141,12 @@ func (s *ProxyServer) startUDPFlow(uls *udpListenerState, clientAddr *net.UDPAdd
 		return
 	}
 
+	connID := newConnectionID()
 	flow := &udpFlow{
 		clientAddr:   clientAddr,
 		upstreamConn: upstreamConn,
 		lastActive:   time.Now(),
+		connectionID: connID,
 	}
 
 	uls.mu.Lock()
@@ -140,12 +155,58 @@ func (s *ProxyServer) startUDPFlow(uls *udpListenerState, clientAddr *net.UDPAdd
 	uls.lastActive = time.Now()
 	uls.mu.Unlock()
 
+	if uls.info.WebhookURL != "" {
+		go s.fireWebhook(uls.info.WebhookURL, "udp_flow_start", uls.info.ContainerID, uls.info.ContainerName, connID, clientAddr.IP.String(), clientAddr.Port)
+	}
+
+	// Send the first datagram with retries: the container process may not be ready
+	// to handle packets immediately after EnsureRunning returns (e.g. pihole's DNS
+	// daemon needs time to bind). For request/response protocols we send, wait
+	// briefly for a response, and forward it; on timeout we retry.
+	// udpUpstreamReadLoop is NOT started until this loop exits so there is never
+	// a concurrent reader on upstreamConn.
+	buf := make([]byte, udpBufSize)
+	for attempt := 1; attempt <= udpFirstDatagramRetries; attempt++ {
+		if _, err := upstreamConn.Write(firstDatagram); err != nil {
+			log.Printf("proxy: udp: write first datagram to \033[33m%s\033[0m failed: %v", uls.info.ContainerName, err)
+			break
+		}
+		if err := upstreamConn.SetReadDeadline(time.Now().Add(udpFirstDatagramInterval)); err != nil {
+			log.Printf("proxy: udp: set deadline for \033[33m%s\033[0m failed: %v", uls.info.ContainerName, err)
+			break
+		}
+		n, readErr := upstreamConn.Read(buf)
+		if err := upstreamConn.SetReadDeadline(time.Time{}); err != nil {
+			log.Printf("proxy: udp: clear deadline for \033[33m%s\033[0m failed: %v", uls.info.ContainerName, err)
+		}
+		if readErr == nil {
+			// Service responded — forward this first reply to the client.
+			if _, werr := uls.listenConn.WriteToUDP(buf[:n], clientAddr); werr != nil {
+				log.Printf("proxy: udp: write initial response to \033[36m%s\033[0m failed: %v", clientAddr, werr)
+			}
+			uls.mu.Lock()
+			flow.lastActive = time.Now()
+			uls.lastActive = time.Now()
+			uls.mu.Unlock()
+			break
+		}
+		if netErr, ok := readErr.(net.Error); ok && netErr.Timeout() {
+			if attempt < udpFirstDatagramRetries {
+				log.Printf("proxy: udp: upstream \033[33m%s\033[0m not ready, retrying (%d/%d)…",
+					uls.info.ContainerName, attempt, udpFirstDatagramRetries)
+				continue
+			}
+			log.Printf("proxy: udp: upstream \033[33m%s\033[0m did not respond after %d attempts; continuing",
+				uls.info.ContainerName, udpFirstDatagramRetries)
+			break
+		}
+		// Non-timeout read error (connection closed, etc.)
+		log.Printf("proxy: udp: upstream read error for \033[33m%s\033[0m: %v", uls.info.ContainerName, readErr)
+		break
+	}
+
 	uls.activeFlows.Add(1)
 	go s.udpUpstreamReadLoop(uls, flow)
-
-	if _, err := upstreamConn.Write(firstDatagram); err != nil {
-		log.Printf("proxy: udp: write first datagram to \033[33m%s\033[0m failed: %v", uls.info.ContainerName, err)
-	}
 }
 
 // udpUpstreamReadLoop reads response datagrams from the container and forwards
@@ -181,15 +242,21 @@ func (s *ProxyServer) udpFlowSweeper(ctx context.Context, uls *udpListenerState,
 				return
 			}
 			now := time.Now()
+			eff := effectiveTimeout(uls.idleTimeout, s.idleTimeout)
 			uls.mu.Lock()
 			for key, flow := range uls.flows {
-				if now.Sub(flow.lastActive) > s.idleTimeout {
+				if now.Sub(flow.lastActive) > eff {
 					log.Printf("proxy: udp: flow \033[36m%s\033[0m -> \033[33m%s\033[0m expired",
 						flow.clientAddr, uls.info.ContainerName)
 					if err := flow.upstreamConn.Close(); err != nil {
 						log.Printf("proxy: udp: error closing upstream conn for flow %s: %v", flow.clientAddr, err)
 					}
 					delete(uls.flows, key)
+					if uls.info.WebhookURL != "" {
+						connID := flow.connectionID
+						clientAddr := flow.clientAddr
+						go s.fireWebhook(uls.info.WebhookURL, "udp_flow_end", uls.info.ContainerID, uls.info.ContainerName, connID, clientAddr.IP.String(), clientAddr.Port)
+					}
 				}
 			}
 			uls.mu.Unlock()

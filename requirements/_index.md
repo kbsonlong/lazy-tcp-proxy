@@ -37,3 +37,23 @@
 | REQ-033 | Fix Second Wave of golangci-lint Violations       | High   | Completed   | 2026-04-02 | [2026-04-02-fix-lint-wave2.md](2026-04-02-fix-lint-wave2.md) |
 | REQ-034 | Fix govet hostport IPv6 Violation                 | High   | Completed   | 2026-04-02 | [2026-04-02-fix-lint-wave3.md](2026-04-02-fix-lint-wave3.md) |
 | REQ-035 | Migrate docker/docker → moby/moby/client          | High   | Completed   | 2026-04-03 | [2026-04-03-migrate-docker-client-module.md](2026-04-03-migrate-docker-client-module.md) |
+| REQ-036 | UDP Test Container in Example Docker Compose      | Low    | Completed   | 2026-04-03 | [2026-04-03-udp-test-container.md](2026-04-03-udp-test-container.md) |
+| REQ-037 | Per-Container Idle Timeout Label Override         | Medium | Completed   | 2026-04-03 | [2026-04-03-idle-timeout-label-override.md](2026-04-03-idle-timeout-label-override.md) |
+| REQ-038 | Kubernetes Backend (BACKEND=kubernetes)           | High   | Completed ⚠️ superseded by REQ-049 (`BACKEND` env var replaced by image-based selection) | 2026-04-04 | [2026-04-04-kubernetes-backend.md](2026-04-04-kubernetes-backend.md) |
+| REQ-039 | Reorganise Example Directory (docker/ subdir)     | Low    | Completed   | 2026-04-04 | [2026-04-04-reorganise-example-dir.md](2026-04-04-reorganise-example-dir.md) |
+| REQ-040 | Example README Files (Docker and Kubernetes)      | Low    | Completed   | 2026-04-05 | [2026-04-05-example-readmes.md](2026-04-05-example-readmes.md) |
+| REQ-041 | Webhook Connection Events (connection_started/ended) | Medium | Completed   | 2026-04-07 | [2026-04-07-webhook-connection-events.md](2026-04-07-webhook-connection-events.md) |
+| REQ-042 | Sort /status Services by Name                     | Low    | Completed   | 2026-04-07 | [2026-04-07-sort-status-services-by-name.md](2026-04-07-sort-status-services-by-name.md) |
+| REQ-043 | UDP-Only Config Validation Fix                    | High   | Completed   | 2026-04-07 | [2026-04-07-udp-only-config-validation.md](2026-04-07-udp-only-config-validation.md) |
+| REQ-044 | Webhook Connection Events — Add Source IP Address | Medium | Completed   | 2026-04-07 | [2026-04-07-webhook-connection-ip-address.md](2026-04-07-webhook-connection-ip-address.md) |
+| REQ-045 | Dependency Cascade (lazy-tcp-proxy.dependants)    | Medium | Completed   | 2026-04-07 | [2026-04-07-docker-dependency-cascade.md](2026-04-07-docker-dependency-cascade.md) |
+| REQ-046 | UDP Flow Webhook Events & Rename TCP Event Names  | Medium | Completed   | 2026-04-07 | [2026-04-07-webhook-udp-flow-events.md](2026-04-07-webhook-udp-flow-events.md) |
+| REQ-047 | Fix Slow Cross-Platform Docker Build (QEMU → Native Cross-Compilation) | Medium | Completed | 2026-04-07 | [2026-04-07-fix-slow-cross-platform-docker-build.md](2026-04-07-fix-slow-cross-platform-docker-build.md) |
+| REQ-048 | Cron-Based Scheduling (Docker & Kubernetes)       | Medium | Completed   | 2026-04-07 | [2026-04-06-cron-scheduling.md](2026-04-06-cron-scheduling.md) |
+| REQ-049 | Separate Kubernetes Build Artifact (mountainpass/lazy-tcp-proxy-k8s)   | Medium | Completed   | 2026-04-07 | [2026-04-07-separate-k8s-build-artifact.md](2026-04-07-separate-k8s-build-artifact.md) |
+| REQ-050 | Singleflight Deduplication for Container Startup | Medium | Completed   | 2026-04-07 | [2026-04-07-singleflight-container-startup.md](2026-04-07-singleflight-container-startup.md) |
+| REQ-051 | Fix Kubernetes WatchEvents Gaps                  | Medium | Completed   | 2026-04-07 | [2026-04-07-fix-k8s-watchevents.md](2026-04-07-fix-k8s-watchevents.md) |
+| REQ-052 | Load Tests (TCP and UDP Proxy)                                          | Medium | Completed   | 2026-04-07 | [2026-04-07-load-tests-tcp-udp.md](2026-04-07-load-tests-tcp-udp.md) |
+| REQ-053 | Platform Integration Documentation (Podman, Unraid, TrueNAS SCALE)     | Medium | Completed   | 2026-04-08 | [2026-04-08-platform-integration-docs.md](2026-04-08-platform-integration-docs.md) |
+| REQ-054 | Docker Compose Recipes for Popular Service Images                       | Medium | Completed   | 2026-04-08 | [2026-04-08-docker-recipes-popular-services.md](2026-04-08-docker-recipes-popular-services.md) |
+| REQ-055 | Fix UDP First Packet Drop on Container Startup                          | High   | Completed   | 2026-04-09 | [2026-04-09-fix-udp-first-packet-drop.md](2026-04-09-fix-udp-first-packet-drop.md) |

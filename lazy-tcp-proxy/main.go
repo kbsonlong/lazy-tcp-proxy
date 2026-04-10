@@ -12,8 +12,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/mountain-pass/lazy-tcp-proxy/internal/docker"
 	"github.com/mountain-pass/lazy-tcp-proxy/internal/proxy"
+	"github.com/mountain-pass/lazy-tcp-proxy/internal/scheduler"
+	"github.com/mountain-pass/lazy-tcp-proxy/internal/types"
 )
 
 const (
@@ -27,7 +28,7 @@ func resolveIdleTimeout() time.Duration {
 		return defaultIdleTimeout
 	}
 	n, err := strconv.Atoi(raw)
-	if err != nil || n <= 0 {
+	if err != nil || n < 0 {
 		log.Printf("IDLE_TIMEOUT_SECS=%q is invalid; using default %s", raw, defaultIdleTimeout)
 		return defaultIdleTimeout
 	}
@@ -90,6 +91,18 @@ func runStatusServer(ctx context.Context, srv *proxy.ProxyServer, port int) {
 	}()
 }
 
+// backendManager is the full interface required by main: it covers discovery,
+// event watching, the three proxy methods, and shutdown cleanup.
+type backendManager interface {
+	Discover(ctx context.Context, handler types.TargetHandler) error
+	WatchEvents(ctx context.Context, handler types.TargetHandler)
+	EnsureRunning(ctx context.Context, targetID string) error
+	StopContainer(ctx context.Context, targetID, targetName string) error
+	GetUpstreamHost(ctx context.Context, targetID, hint string) (string, error)
+	Shutdown(ctx context.Context)
+}
+
+
 func main() {
 	startTime := time.Now()
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
@@ -108,18 +121,29 @@ func main() {
 		cancel()
 	}()
 
-	// Create the Docker manager
-	mgr, err := docker.NewManager()
+	// Select and initialise backend
+	mgr, err := resolveBackend()
 	if err != nil {
-		log.Fatalf("failed to create docker manager: %v", err)
+		log.Fatalf("failed to create backend: %v", err)
 	}
 
 	// Create the proxy server
 	idleTimeout := resolveIdleTimeout()
-	log.Printf("idle timeout: %s (set IDLE_TIMEOUT_SECS to override)", idleTimeout)
+	if idleTimeout == 0 {
+		log.Printf("idle timeout: 0s — containers stop immediately when all connections close (set IDLE_TIMEOUT_SECS to override)")
+	} else {
+		log.Printf("idle timeout: %s (set IDLE_TIMEOUT_SECS to override)", idleTimeout)
+	}
 	tick := resolvePollInterval()
 	log.Printf("inactivity check interval: %s (set POLL_INTERVAL_SECS to override)", tick)
 	srv := proxy.NewServer(ctx, mgr, startTime, idleTimeout, tick)
+
+	// Create and wire the cron scheduler (must happen before Discover so that
+	// initial targets get their schedules registered).
+	sched := scheduler.New(ctx, srv)
+	srv.SetScheduler(sched)
+	sched.Start()
+	defer sched.Stop()
 
 	// Start the HTTP status server
 	statusPort := resolveStatusPort()
@@ -130,18 +154,18 @@ func main() {
 		runStatusServer(ctx, srv, statusPort)
 	}
 
-	// Initial discovery of all matching containers
-	log.Println("performing initial container discovery...")
+	// Initial discovery of all matching targets
+	log.Println("performing initial target discovery...")
 	if err := mgr.Discover(ctx, srv); err != nil {
 		log.Printf("initial discovery error: %v", err)
 	}
 
-	// Watch Docker events for runtime changes
+	// Watch for runtime changes
 	go func() {
 		mgr.WatchEvents(ctx, srv)
 	}()
 
-	// Periodically stop idle containers
+	// Periodically stop idle targets
 	go func() {
 		srv.RunInactivityChecker(ctx, tick)
 	}()
@@ -149,6 +173,6 @@ func main() {
 	log.Println("lazy-tcp-proxy running; waiting for shutdown signal")
 	<-ctx.Done()
 	log.Println("lazy-tcp-proxy shutting down")
-	mgr.LeaveNetworks(context.Background())
+	mgr.Shutdown(context.Background())
 	log.Println("lazy-tcp-proxy stopped")
 }

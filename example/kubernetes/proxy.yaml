@@ -1,0 +1,71 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lazy-tcp-proxy
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lazy-tcp-proxy
+  namespace: lazy-tcp-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lazy-tcp-proxy
+  template:
+    metadata:
+      labels:
+        app: lazy-tcp-proxy
+    spec:
+      serviceAccountName: lazy-tcp-proxy
+      containers:
+        - name: lazy-tcp-proxy
+          image: mountainpass/lazy-tcp-proxy-k8s:latest
+          ports:
+            - containerPort: 8080   # status/health endpoint
+          env:
+            # Restrict discovery to a single namespace (optional).
+            # Remove or set to "" to watch all namespaces.
+            - name: K8S_NAMESPACE
+              value: "default"
+            # How long (seconds) a target must be idle before it is scaled to 0.
+            - name: IDLE_TIMEOUT_SECS
+              value: "120"
+            # How often the inactivity checker runs.
+            - name: POLL_INTERVAL_SECS
+              value: "15"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: "16Mi"
+              cpu: "50m"
+            limits:
+              memory: "64Mi"
+              cpu: "200m"
+---
+# Expose the status endpoint inside the cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: lazy-tcp-proxy
+  namespace: lazy-tcp-proxy
+spec:
+  selector:
+    app: lazy-tcp-proxy
+  ports:
+    - name: status
+      port: 8080
+      targetPort: 8080

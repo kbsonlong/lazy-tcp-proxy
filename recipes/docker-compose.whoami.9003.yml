@@ -1,0 +1,9 @@
+services:
+  # Note: uses a HTTP keep alive (server side)
+  whoami:
+    image: traefik/whoami
+    container_name: whoami
+    command: ["--verbose"]
+    labels:
+      - "lazy-tcp-proxy.enabled=true"
+      - "lazy-tcp-proxy.ports=9003:80"

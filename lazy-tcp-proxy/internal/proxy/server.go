@@ -3,6 +3,8 @@ package proxy
 import (
 	"bytes"
 	"context"
+	crypto_rand "crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,11 +12,15 @@ import (
 	"net"
 	"net/http"
 	"runtime/debug"
+	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/mountain-pass/lazy-tcp-proxy/internal/docker"
+	"golang.org/x/sync/singleflight"
+
+	"github.com/mountain-pass/lazy-tcp-proxy/internal/types"
 )
 
 const (
@@ -56,6 +62,14 @@ func relativeTime(t, now time.Time) string {
 	}
 }
 
+// effectiveTimeout returns the per-container idle timeout if set, otherwise the server default.
+func effectiveTimeout(perContainer *time.Duration, global time.Duration) time.Duration {
+	if perContainer != nil {
+		return *perContainer
+	}
+	return global
+}
+
 var copyBufPool = sync.Pool{
 	New: func() any {
 		b := make([]byte, copyBufSize)
@@ -65,11 +79,12 @@ var copyBufPool = sync.Pool{
 
 // targetState holds runtime state for a single listen-port→container-port mapping.
 type targetState struct {
-	info        docker.TargetInfo
+	info        types.TargetInfo
 	targetPort  int
 	listener    net.Listener
 	lastActive  time.Time
 	activeConns atomic.Int32
+	idleTimeout *time.Duration // nil = use server default
 	running     bool
 	removed     bool
 }
@@ -77,44 +92,191 @@ type targetState struct {
 // webhookPayload is the JSON body sent to a container's webhook URL.
 type webhookPayload struct {
 	Event         string `json:"event"`
+	ConnectionID  string `json:"connection_id,omitempty"`
+	RemoteAddr    string `json:"remote_addr,omitempty"`
+	RemotePort    int    `json:"remote_port,omitempty"`
 	ContainerID   string `json:"container_id"`
 	ContainerName string `json:"container_name"`
 	Timestamp     string `json:"timestamp"`
 }
 
-// dockerManager is the subset of docker.Manager used by ProxyServer.
-// Defined as an interface to allow testing without a real Docker daemon.
-type dockerManager interface {
-	EnsureRunning(ctx context.Context, containerID string) error
-	StopContainer(ctx context.Context, containerID, containerName string) error
-	GetContainerIP(ctx context.Context, containerID, preferNetworkID string) (string, error)
+// newConnectionID returns a random UUID v4 string.
+func newConnectionID() string {
+	var b [16]byte
+	if _, err := crypto_rand.Read(b[:]); err != nil {
+		return "00000000-0000-0000-0000-000000000000"
+	}
+	b[6] = (b[6] & 0x0f) | 0x40 // version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // variant RFC 4122
+	return fmt.Sprintf("%s-%s-%s-%s-%s",
+		hex.EncodeToString(b[0:4]),
+		hex.EncodeToString(b[4:6]),
+		hex.EncodeToString(b[6:8]),
+		hex.EncodeToString(b[8:10]),
+		hex.EncodeToString(b[10:]))
 }
 
-// ProxyServer manages TCP listeners and proxies connections to Docker containers.
+// containerBackend is the subset of backend methods used by ProxyServer.
+type containerBackend interface {
+	EnsureRunning(ctx context.Context, targetID string) error
+	StopContainer(ctx context.Context, targetID, targetName string) error
+	GetUpstreamHost(ctx context.Context, targetID, hint string) (string, error)
+}
+
+// cronScheduler is the subset of scheduler methods used by ProxyServer.
+// Defined as an interface so proxy does not import the scheduler package.
+type cronScheduler interface {
+	Register(info types.TargetInfo)
+	Unregister(targetID string)
+}
+
+// ProxyServer manages TCP listeners and proxies connections to targets.
 type ProxyServer struct {
-	docker        dockerManager
+	backend       containerBackend
 	ctx           context.Context
 	mu            sync.RWMutex
 	targets       map[int]*targetState     // keyed by TCP listen port
 	udpTargets    map[int]*udpListenerState // keyed by UDP listen port
+	nameToID      map[string]string        // ContainerName → ContainerID for cascade lookup
 	pollInterval  time.Duration
 	idleTimeout   time.Duration
 	startTime     time.Time
 	webhookClient *http.Client
+	sched         cronScheduler   // nil if no scheduler configured
+	startGroup    singleflight.Group // deduplicates concurrent EnsureRunning calls per container
 }
 
-// NewServer creates a new ProxyServer backed by the given DockerManager.
-func NewServer(ctx context.Context, d *docker.Manager, startTime time.Time, idleTimeout, pollInterval time.Duration) *ProxyServer {
+// NewServer creates a new ProxyServer backed by the given backend.
+func NewServer(ctx context.Context, b containerBackend, startTime time.Time, idleTimeout, pollInterval time.Duration) *ProxyServer {
 	return &ProxyServer{
-		docker:        d,
+		backend:       b,
 		ctx:           ctx,
 		targets:       make(map[int]*targetState),
 		udpTargets:    make(map[int]*udpListenerState),
+		nameToID:      make(map[string]string),
 		idleTimeout:   idleTimeout,
 		pollInterval:  pollInterval,
 		startTime:     startTime,
 		webhookClient: &http.Client{Timeout: 5 * time.Second},
 	}
+}
+
+// SetScheduler injects the cron scheduler. Must be called before Discover.
+func (s *ProxyServer) SetScheduler(sched cronScheduler) {
+	s.sched = sched
+}
+
+// CronStart is called by the scheduler to start a target on its cron-start schedule.
+// It is a no-op (with a log) if the target is already running.
+func (s *ProxyServer) CronStart(ctx context.Context, targetID, targetName string) {
+	s.mu.RLock()
+	running, found := s.isRunning(targetID)
+	s.mu.RUnlock()
+	if !found {
+		log.Printf("scheduler: cron-start: \033[33m%s\033[0m not found, skipping", targetName)
+		return
+	}
+	if running {
+		log.Printf("scheduler: cron-start: \033[33m%s\033[0m already running, no action", targetName)
+		return
+	}
+	if err := s.backend.EnsureRunning(ctx, targetID); err != nil {
+		log.Printf("scheduler: cron-start: failed to start \033[33m%s\033[0m: %v", targetName, err)
+		return
+	}
+	s.mu.Lock()
+	for _, ts := range s.targets {
+		if ts.info.ContainerID == targetID {
+			ts.running = true
+		}
+	}
+	for _, uls := range s.udpTargets {
+		if uls.info.ContainerID == targetID {
+			uls.running = true
+		}
+	}
+	s.mu.Unlock()
+	log.Printf("scheduler: cron-start: started \033[33m%s\033[0m", targetName)
+
+	s.mu.RLock()
+	var info types.TargetInfo
+	for _, ts := range s.targets {
+		if ts.info.ContainerID == targetID {
+			info = ts.info
+			break
+		}
+	}
+	s.mu.RUnlock()
+	if info.WebhookURL != "" {
+		go s.fireWebhook(info.WebhookURL, "container_started", targetID, targetName, "", "", 0)
+	}
+	if len(info.Dependants) > 0 {
+		go s.cascadeStart(info)
+	}
+}
+
+// CronStop is called by the scheduler to stop a target on its cron-stop schedule.
+// It is a no-op (with a log) if the target is already stopped.
+func (s *ProxyServer) CronStop(ctx context.Context, targetID, targetName string) {
+	s.mu.RLock()
+	running, found := s.isRunning(targetID)
+	s.mu.RUnlock()
+	if !found {
+		log.Printf("scheduler: cron-stop: \033[33m%s\033[0m not found, skipping", targetName)
+		return
+	}
+	if !running {
+		log.Printf("scheduler: cron-stop: \033[33m%s\033[0m already stopped, no action", targetName)
+		return
+	}
+	if err := s.backend.StopContainer(ctx, targetID, targetName); err != nil {
+		log.Printf("scheduler: cron-stop: failed to stop \033[33m%s\033[0m: %v", targetName, err)
+		return
+	}
+	s.mu.Lock()
+	var info types.TargetInfo
+	for _, ts := range s.targets {
+		if ts.info.ContainerID == targetID {
+			ts.running = false
+			info = ts.info
+		}
+	}
+	for _, uls := range s.udpTargets {
+		if uls.info.ContainerID == targetID {
+			uls.running = false
+			info = uls.info
+		}
+	}
+	s.mu.Unlock()
+	log.Printf("scheduler: cron-stop: stopped \033[33m%s\033[0m", targetName)
+	if info.WebhookURL != "" {
+		go s.fireWebhook(info.WebhookURL, "container_stopped", targetID, targetName, "", "", 0)
+	}
+	if len(info.Dependants) > 0 {
+		go s.cascadeStop(info)
+	}
+}
+
+// isRunning reports whether any mapping for targetID is running.
+// Caller must hold s.mu (at least RLock).
+func (s *ProxyServer) isRunning(targetID string) (running, found bool) {
+	for _, ts := range s.targets {
+		if ts.info.ContainerID == targetID {
+			found = true
+			if ts.running {
+				running = true
+			}
+		}
+	}
+	for _, uls := range s.udpTargets {
+		if uls.info.ContainerID == targetID {
+			found = true
+			if uls.running {
+				running = true
+			}
+		}
+	}
+	return
 }
 
 // Snapshot returns a point-in-time copy of all registered targets.
@@ -144,18 +306,29 @@ func (s *ProxyServer) Snapshot() []TargetSnapshot {
 			LastActiveRelative: relativeTime(effective, now),
 		})
 	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ContainerName != out[j].ContainerName {
+			return out[i].ContainerName < out[j].ContainerName
+		}
+		return out[i].ContainerID < out[j].ContainerID
+	})
 	return out
 }
 
 // fireWebhook POSTs a lifecycle event to the container's webhook URL.
+// connID, remoteAddr and remotePort are included for connection/flow events;
+// pass "", "", 0 for container lifecycle events.
 // Must be called in a goroutine — never blocks the proxy path.
-func (s *ProxyServer) fireWebhook(webhookURL, event, containerID, containerName string) {
+func (s *ProxyServer) fireWebhook(webhookURL, event, containerID, containerName, connID, remoteAddr string, remotePort int) {
 	id := containerID
 	if len(id) > 12 {
 		id = id[:12]
 	}
 	payload := webhookPayload{
 		Event:         event,
+		ConnectionID:  connID,
+		RemoteAddr:    remoteAddr,
+		RemotePort:    remotePort,
 		ContainerID:   id,
 		ContainerName: containerName,
 		Timestamp:     time.Now().UTC().Format(time.RFC3339),
@@ -175,7 +348,7 @@ func (s *ProxyServer) fireWebhook(webhookURL, event, containerID, containerName 
 }
 
 // RegisterTarget adds or updates a target. One listener is created per port mapping.
-func (s *ProxyServer) RegisterTarget(info docker.TargetInfo) {
+func (s *ProxyServer) RegisterTarget(info types.TargetInfo) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -201,6 +374,7 @@ func (s *ProxyServer) RegisterTarget(info docker.TargetInfo) {
 		if existing, ok := s.targets[m.ListenPort]; ok {
 			existing.info = info
 			existing.targetPort = m.TargetPort
+			existing.idleTimeout = info.IdleTimeout
 			existing.running = info.Running
 			existing.removed = false
 			log.Printf("proxy: updated TCP target \033[33m%s\033[0m on port %d->%d", info.ContainerName, m.ListenPort, m.TargetPort)
@@ -214,11 +388,12 @@ func (s *ProxyServer) RegisterTarget(info docker.TargetInfo) {
 		}
 
 		ts := &targetState{
-			info:       info,
-			targetPort: m.TargetPort,
-			listener:   ln,
-			lastActive: time.Time{}, // zero — immediately idle
-			running:    info.Running,
+			info:        info,
+			targetPort:  m.TargetPort,
+			listener:    ln,
+			lastActive:  time.Time{}, // zero — immediately idle
+			idleTimeout: info.IdleTimeout,
+			running:     info.Running,
 		}
 		s.targets[m.ListenPort] = ts
 		log.Printf("proxy: registered target \033[33m%s\033[0m, TCP %d->%d", info.ContainerName, m.ListenPort, m.TargetPort)
@@ -230,6 +405,7 @@ func (s *ProxyServer) RegisterTarget(info docker.TargetInfo) {
 		if existing, ok := s.udpTargets[m.ListenPort]; ok {
 			existing.info = info
 			existing.targetPort = m.TargetPort
+			existing.idleTimeout = info.IdleTimeout
 			existing.running = info.Running
 			existing.removed = false
 			log.Printf("proxy: updated UDP target \033[33m%s\033[0m on port %d->%d", info.ContainerName, m.ListenPort, m.TargetPort)
@@ -242,17 +418,26 @@ func (s *ProxyServer) RegisterTarget(info docker.TargetInfo) {
 			continue
 		}
 		uls := &udpListenerState{
-			listenConn: pc.(*net.UDPConn),
-			targetPort: m.TargetPort,
-			info:       info,
-			running:    info.Running,
-			flows:      make(map[string]*udpFlow),
-			pending:    make(map[string]bool),
+			listenConn:  pc.(*net.UDPConn),
+			targetPort:  m.TargetPort,
+			info:        info,
+			idleTimeout: info.IdleTimeout,
+			running:     info.Running,
+			flows:       make(map[string]*udpFlow),
+			pending:     make(map[string]bool),
 		}
 		s.udpTargets[m.ListenPort] = uls
 		log.Printf("proxy: registered target \033[33m%s\033[0m, UDP %d->%d", info.ContainerName, m.ListenPort, m.TargetPort)
 		go s.udpReadLoop(uls)
 		go s.udpFlowSweeper(s.ctx, uls, s.pollInterval)
+	}
+
+	// Keep name→ID map current for cascade lookups.
+	s.nameToID[info.ContainerName] = info.ContainerID
+
+	// Register with cron scheduler if any schedule is set.
+	if s.sched != nil && (info.CronStart != "" || info.CronStop != "") {
+		s.sched.Register(info)
 	}
 }
 
@@ -264,6 +449,7 @@ func (s *ProxyServer) RemoveTarget(containerID string) {
 	for port, ts := range s.targets {
 		if ts.info.ContainerID == containerID {
 			log.Printf("proxy: removing target \033[33m%s\033[0m on TCP port %d", ts.info.ContainerName, port)
+			delete(s.nameToID, ts.info.ContainerName)
 			ts.removed = true
 			if err := ts.listener.Close(); err != nil {
 				log.Printf("proxy: error closing TCP listener on port %d: %v", port, err)
@@ -274,6 +460,7 @@ func (s *ProxyServer) RemoveTarget(containerID string) {
 	for port, uls := range s.udpTargets {
 		if uls.info.ContainerID == containerID {
 			log.Printf("proxy: removing target \033[33m%s\033[0m on UDP port %d", uls.info.ContainerName, port)
+			delete(s.nameToID, uls.info.ContainerName)
 			uls.removed = true
 			if err := uls.listenConn.Close(); err != nil {
 				log.Printf("proxy: error closing UDP listener on port %d: %v", port, err)
@@ -281,22 +468,47 @@ func (s *ProxyServer) RemoveTarget(containerID string) {
 			delete(s.udpTargets, port)
 		}
 	}
+	if s.sched != nil {
+		s.sched.Unregister(containerID)
+	}
 }
 
 // ContainerStopped marks all port mappings for the given container as stopped
-// so the inactivity checker does not issue further stop calls.
+// and cascades a stop to any declared dependants.
 func (s *ProxyServer) ContainerStopped(containerID string) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	var info types.TargetInfo
 	for _, ts := range s.targets {
 		if ts.info.ContainerID == containerID {
 			ts.running = false
+			info = ts.info
 		}
 	}
 	for _, uls := range s.udpTargets {
 		if uls.info.ContainerID == containerID {
 			uls.running = false
+			info = uls.info
 		}
+	}
+	s.mu.RUnlock()
+	if len(info.Dependants) > 0 {
+		go s.cascadeStop(info)
+	}
+}
+
+// ContainerStarted cascades a start to any declared dependants.
+func (s *ProxyServer) ContainerStarted(containerID string) {
+	s.mu.RLock()
+	var info types.TargetInfo
+	for _, ts := range s.targets {
+		if ts.info.ContainerID == containerID {
+			info = ts.info
+			break
+		}
+	}
+	s.mu.RUnlock()
+	if len(info.Dependants) > 0 {
+		go s.cascadeStart(info)
 	}
 }
 
@@ -332,6 +544,7 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 		containerID string
 		name        string
 		webhookURL  string
+		info        types.TargetInfo
 		allIdle     bool
 		tcpStates   []*targetState
 		udpStates   []*udpListenerState
@@ -342,13 +555,17 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 		if ts.removed {
 			continue
 		}
+		if ts.info.CronStart != "" || ts.info.CronStop != "" {
+			continue // lifecycle managed by cron scheduler
+		}
 		e, ok := byContainer[ts.info.ContainerID]
 		if !ok {
-			e = &entry{containerID: ts.info.ContainerID, name: ts.info.ContainerName, webhookURL: ts.info.WebhookURL, allIdle: true}
+			e = &entry{containerID: ts.info.ContainerID, name: ts.info.ContainerName, webhookURL: ts.info.WebhookURL, info: ts.info, allIdle: true}
 			byContainer[ts.info.ContainerID] = e
 		}
 		e.tcpStates = append(e.tcpStates, ts)
-		if !ts.running || ts.activeConns.Load() > 0 || time.Since(ts.lastActive) < s.idleTimeout {
+		eff := effectiveTimeout(ts.idleTimeout, s.idleTimeout)
+		if !ts.running || ts.activeConns.Load() > 0 || time.Since(ts.lastActive) < eff {
 			e.allIdle = false
 		}
 	}
@@ -357,9 +574,12 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 		if uls.removed {
 			continue
 		}
+		if uls.info.CronStart != "" || uls.info.CronStop != "" {
+			continue // lifecycle managed by cron scheduler
+		}
 		e, ok := byContainer[uls.info.ContainerID]
 		if !ok {
-			e = &entry{containerID: uls.info.ContainerID, name: uls.info.ContainerName, webhookURL: uls.info.WebhookURL, allIdle: true}
+			e = &entry{containerID: uls.info.ContainerID, name: uls.info.ContainerName, webhookURL: uls.info.WebhookURL, info: uls.info, allIdle: true}
 			byContainer[uls.info.ContainerID] = e
 		}
 		e.udpStates = append(e.udpStates, uls)
@@ -367,14 +587,15 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 		activeFlows := len(uls.flows) + len(uls.pending)
 		lastActive := uls.lastActive
 		uls.mu.Unlock()
-		if !uls.running || activeFlows > 0 || time.Since(lastActive) < s.idleTimeout {
+		eff := effectiveTimeout(uls.idleTimeout, s.idleTimeout)
+		if !uls.running || activeFlows > 0 || time.Since(lastActive) < eff {
 			e.allIdle = false
 		}
 	}
 
 	for _, e := range byContainer {
 		if e.allIdle {
-			if err := s.docker.StopContainer(ctx, e.containerID, e.name); err != nil {
+			if err := s.backend.StopContainer(ctx, e.containerID, e.name); err != nil {
 				log.Printf("proxy: inactivity: error stopping \033[33m%s\033[0m: %v", e.name, err)
 			} else {
 				for _, ts := range e.tcpStates {
@@ -384,7 +605,10 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 					uls.running = false
 				}
 				if e.webhookURL != "" {
-					go s.fireWebhook(e.webhookURL, "container_stopped", e.containerID, e.name)
+					go s.fireWebhook(e.webhookURL, "container_stopped", e.containerID, e.name, "", "", 0)
+				}
+				if len(e.info.Dependants) > 0 {
+					go s.cascadeStop(e.info)
 				}
 			}
 		}
@@ -392,12 +616,11 @@ func (s *ProxyServer) checkInactivity(ctx context.Context) {
 }
 
 // ipBlocked returns true if the remote address should be denied based on the
-// target's allow-list and block-list. Evaluation order: allow-list first (if
-// set), then block-list. An empty list means "no restriction".
-func ipBlocked(remoteAddr string, info docker.TargetInfo) bool {
+// target's allow-list and block-list.
+func ipBlocked(remoteAddr string, info types.TargetInfo) bool {
 	host, _, err := net.SplitHostPort(remoteAddr)
 	if err != nil {
-		return false // can't parse; let through
+		return false
 	}
 	ip := net.ParseIP(host)
 	if ip == nil {
@@ -438,17 +661,21 @@ func (s *ProxyServer) acceptLoop(ts *targetState) {
 	}
 }
 
-// handleConn manages a single inbound connection to a target container.
+// handleConn manages a single inbound connection to a target.
 func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 	defer conn.Close() //nolint:errcheck
 
-	// Increment activeConns immediately so the inactivity checker does not stop
-	// the container while we are starting it or waiting for the upstream dial.
 	ts.activeConns.Add(1)
 	defer func() {
 		if ts.activeConns.Add(-1) == 0 {
-			log.Printf("proxy: last connection to \033[33m%s\033[0m closed; idle timer started (container will stop in ~%s if no new connections)",
-				ts.info.ContainerName, s.idleTimeout)
+			eff := effectiveTimeout(ts.idleTimeout, s.idleTimeout)
+			if eff == 0 {
+				log.Printf("proxy: last connection to \033[33m%s\033[0m closed; idle timer started (container will stop immediately if no new connections)",
+					ts.info.ContainerName)
+			} else {
+				log.Printf("proxy: last connection to \033[33m%s\033[0m closed; idle timer started (container will stop in ~%s if no new connections)",
+					ts.info.ContainerName, eff)
+			}
 			go debug.FreeOSMemory()
 		}
 	}()
@@ -463,33 +690,48 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 	log.Printf("proxy: new connection to \033[33m%s\033[0m (port %d) from \033[36m%s\033[0m",
 		ts.info.ContainerName, ts.targetPort, conn.RemoteAddr())
 
-	// Ensure the container is running
-	if err := s.docker.EnsureRunning(ctx, ts.info.ContainerID); err != nil {
-		log.Printf("proxy: could not start container \033[33m%s\033[0m: %v", ts.info.ContainerName, err)
+	remoteIP, remotePortStr, _ := net.SplitHostPort(conn.RemoteAddr().String())
+	remotePort, _ := strconv.Atoi(remotePortStr)
+	connID := newConnectionID()
+	if ts.info.WebhookURL != "" {
+		go s.fireWebhook(ts.info.WebhookURL, "tcp_conn_start", ts.info.ContainerID, ts.info.ContainerName, connID, remoteIP, remotePort)
+		defer func() {
+			go s.fireWebhook(ts.info.WebhookURL, "tcp_conn_end", ts.info.ContainerID, ts.info.ContainerName, connID, remoteIP, remotePort)
+		}()
+	}
+
+	_, startErr, shared := s.startGroup.Do(ts.info.ContainerID, func() (any, error) {
+		return nil, s.backend.EnsureRunning(ctx, ts.info.ContainerID)
+	})
+	if shared {
+		log.Printf("proxy: joined in-flight startup for \033[33m%s\033[0m", ts.info.ContainerName)
+	}
+	if startErr != nil {
+		log.Printf("proxy: could not start container \033[33m%s\033[0m: %v", ts.info.ContainerName, startErr)
 		return
 	}
 	if ts.info.WebhookURL != "" {
-		go s.fireWebhook(ts.info.WebhookURL, "container_started", ts.info.ContainerID, ts.info.ContainerName)
+		go s.fireWebhook(ts.info.WebhookURL, "container_started", ts.info.ContainerID, ts.info.ContainerName, "", "", 0)
 	}
 
-	// Determine preferred network (first in list)
-	var preferNet string
+	// Determine preferred network hint (first network ID in list; unused in k8s mode)
+	var hint string
 	if len(ts.info.NetworkIDs) > 0 {
-		preferNet = ts.info.NetworkIDs[0]
+		hint = ts.info.NetworkIDs[0]
 	}
 
-	// Retry dial to container
+	// Retry dial to upstream
 	var upstream net.Conn
 	var lastErr error
 	for attempt := 1; attempt <= dialRetries; attempt++ {
-		ip, err := s.docker.GetContainerIP(ctx, ts.info.ContainerID, preferNet)
+		host, err := s.backend.GetUpstreamHost(ctx, ts.info.ContainerID, hint)
 		if err != nil {
-			log.Printf("proxy: attempt %d: could not get IP for \033[33m%s\033[0m: %v", attempt, ts.info.ContainerName, err)
+			log.Printf("proxy: attempt %d: could not get upstream host for \033[33m%s\033[0m: %v", attempt, ts.info.ContainerName, err)
 			time.Sleep(dialInterval)
 			continue
 		}
 
-		addr := net.JoinHostPort(ip, fmt.Sprintf("%d", ts.targetPort))
+		addr := net.JoinHostPort(host, fmt.Sprintf("%d", ts.targetPort))
 		upstream, lastErr = net.DialTimeout("tcp", addr, dialInterval)
 		if lastErr == nil {
 			break
@@ -504,13 +746,10 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 	}
 	defer upstream.Close() //nolint:errcheck
 
-	// Update lastActive when the proxied connection closes (successful activity).
 	defer func() { ts.lastActive = time.Now() }()
 
 	log.Printf("proxy: proxying connection to %s", upstream.RemoteAddr())
 
-	// Bidirectional copy. When either direction closes, both connections are
-	// shut down immediately so the other goroutine is never left hanging.
 	var closeOnce sync.Once
 	closeAll := func() {
 		closeOnce.Do(func() {
@@ -540,4 +779,95 @@ func (s *ProxyServer) handleConn(conn net.Conn, ts *targetState) {
 
 	wg.Wait()
 	log.Printf("proxy: connection to \033[33m%s\033[0m closed", ts.info.ContainerName)
+}
+
+// cascadeStart starts all registered dependants of upstream.
+func (s *ProxyServer) cascadeStart(upstream types.TargetInfo) {
+	for _, depName := range upstream.Dependants {
+		s.mu.RLock()
+		depID, ok := s.nameToID[depName]
+		s.mu.RUnlock()
+
+		if !ok {
+			log.Printf("proxy: cascade start: \033[33m%s\033[0m → %q not registered, skipping",
+				upstream.ContainerName, depName)
+			continue
+		}
+		log.Printf("proxy: cascade start: \033[33m%s\033[0m → \033[33m%s\033[0m",
+			upstream.ContainerName, depName)
+		_, startErr, shared := s.startGroup.Do(depID, func() (any, error) {
+			return nil, s.backend.EnsureRunning(s.ctx, depID)
+		})
+		if shared {
+			log.Printf("proxy: cascade start: joined in-flight startup for \033[33m%s\033[0m", depName)
+		}
+		if startErr != nil {
+			log.Printf("proxy: cascade start: error starting \033[33m%s\033[0m: %v", depName, startErr)
+			continue
+		}
+		s.mu.RLock()
+		for _, ts := range s.targets {
+			if ts.info.ContainerID == depID {
+				ts.running = true
+			}
+		}
+		for _, uls := range s.udpTargets {
+			if uls.info.ContainerID == depID {
+				uls.running = true
+			}
+		}
+		s.mu.RUnlock()
+	}
+}
+
+// cascadeStop stops all registered dependants of upstream that are still running.
+func (s *ProxyServer) cascadeStop(upstream types.TargetInfo) {
+	for _, depName := range upstream.Dependants {
+		s.mu.RLock()
+		depID, ok := s.nameToID[depName]
+		// Check whether any mapping for this dependant is still running.
+		running := false
+		for _, ts := range s.targets {
+			if ts.info.ContainerID == depID && ts.running {
+				running = true
+				break
+			}
+		}
+		if !running {
+			for _, uls := range s.udpTargets {
+				if uls.info.ContainerID == depID && uls.running {
+					running = true
+					break
+				}
+			}
+		}
+		s.mu.RUnlock()
+
+		if !ok {
+			log.Printf("proxy: cascade stop: \033[33m%s\033[0m → %q not registered, skipping",
+				upstream.ContainerName, depName)
+			continue
+		}
+		if !running {
+			continue // already stopped
+		}
+		log.Printf("proxy: cascade stop: \033[33m%s\033[0m → \033[33m%s\033[0m",
+			upstream.ContainerName, depName)
+		if err := s.backend.StopContainer(s.ctx, depID, depName); err != nil {
+			log.Printf("proxy: cascade stop: error stopping \033[33m%s\033[0m: %v", depName, err)
+			continue
+		}
+		s.mu.RLock()
+		for _, ts := range s.targets {
+			if ts.info.ContainerID == depID {
+				ts.running = false
+			}
+		}
+		for _, uls := range s.udpTargets {
+			if uls.info.ContainerID == depID {
+				uls.running = false
+			}
+		}
+		s.mu.RUnlock()
+	}
 }

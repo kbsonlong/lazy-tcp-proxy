@@ -1,0 +1,12 @@
+services:
+  samba:
+    image: dperson/samba
+    container_name: samba
+    volumes:
+      - /shared:/shared
+    command: >
+      -s "public;/shared;yes;no;yes"
+      -g "guest account = nobody"
+    labels:
+      - "lazy-tcp-proxy.enabled=true"
+      - "lazy-tcp-proxy.ports=445:445"

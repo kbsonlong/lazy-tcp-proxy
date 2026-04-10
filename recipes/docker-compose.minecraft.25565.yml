@@ -1,0 +1,13 @@
+services:
+  minecraft:
+    image: itzg/minecraft-server
+    pull_policy: daily
+    container_name: minecraft
+    environment:
+      EULA: "true"
+    volumes:
+    - ./minecraft:/data
+    labels:
+      - "lazy-tcp-proxy.enabled=true"
+      - "lazy-tcp-proxy.ports=25565:25565"
+      - "lazy-tcp-proxy.block-list=51.159.149.103,76.149.80.191,66.56.81.55,155.248.209.22,176.65.148.15,172.29.0.3,176.65.148.156,172.29.0.2"

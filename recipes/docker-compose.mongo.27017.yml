@@ -1,0 +1,15 @@
+services:
+  mongo:
+    image: mongo:7.0.5
+    container_name: mongo
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-password}
+      MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE:-mongodb}
+    # ports:
+    #   - "${MONGO_PORT:-27017}:27017"
+    volumes:
+      - mongo:/data/db
+    labels:
+      - "lazy-tcp-proxy.enabled=true"
+      - "lazy-tcp-proxy.ports=27017:27017"

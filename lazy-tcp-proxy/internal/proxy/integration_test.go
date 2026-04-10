@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mountain-pass/lazy-tcp-proxy/internal/docker"
+	"github.com/mountain-pass/lazy-tcp-proxy/internal/types"
 )
 
 // ---- helpers ----
@@ -61,19 +61,19 @@ func startUDPEchoServer(t *testing.T) int {
 	return pc.LocalAddr().(*net.UDPAddr).Port
 }
 
-// integrationMock is a dockerManager that always returns a fixed IP and
+// integrationMock is a containerBackend that always returns a fixed host and
 // succeeds on EnsureRunning / StopContainer — no real Docker daemon needed.
-type integrationMock struct{ ip string }
+type integrationMock struct{ host string }
 
 func (m *integrationMock) EnsureRunning(_ context.Context, _ string) error    { return nil }
 func (m *integrationMock) StopContainer(_ context.Context, _, _ string) error { return nil }
-func (m *integrationMock) GetContainerIP(_ context.Context, _, _ string) (string, error) {
-	return m.ip, nil
+func (m *integrationMock) GetUpstreamHost(_ context.Context, _, _ string) (string, error) {
+	return m.host, nil
 }
 
 // newIntegrationServer creates a ProxyServer backed by integrationMock.
 // The server's context is cancelled when the test ends.
-func newIntegrationServer(t *testing.T, ip string) *ProxyServer {
+func newIntegrationServer(t *testing.T, host string) *ProxyServer {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -81,9 +81,10 @@ func newIntegrationServer(t *testing.T, ip string) *ProxyServer {
 		ctx:          ctx,
 		targets:      make(map[int]*targetState),
 		udpTargets:   make(map[int]*udpListenerState),
+		nameToID:     make(map[string]string),
 		idleTimeout:  5 * time.Minute,
 		pollInterval: 15 * time.Second,
-		docker:       &integrationMock{ip: ip},
+		backend:      &integrationMock{host: host},
 	}
 }
 
@@ -93,22 +94,19 @@ func TestTCPProxy_ForwardsData(t *testing.T) {
 	echoPort := startTCPEchoServer(t)
 	s := newIntegrationServer(t, "127.0.0.1")
 
-	// Register with ListenPort: 0 so the OS picks the proxy listen port.
-	s.RegisterTarget(docker.TargetInfo{
+	s.RegisterTarget(types.TargetInfo{
 		ContainerID:   "ctr-tcp",
 		ContainerName: "echo-tcp",
 		Running:       true,
-		Ports:         []docker.PortMapping{{ListenPort: 0, TargetPort: echoPort}},
+		Ports:         []types.PortMapping{{ListenPort: 0, TargetPort: echoPort}},
 	})
 
-	// The entry is stored at key 0; read the actual bound port from the listener.
 	ts, ok := s.targets[0]
 	if !ok {
 		t.Fatal("target not registered")
 	}
 	proxyPort := ts.listener.Addr().(*net.TCPAddr).Port
 
-	// Dial through the proxy.
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPort), 5*time.Second)
 	if err != nil {
 		t.Fatalf("dial proxy: %v", err)
@@ -135,22 +133,19 @@ func TestUDPProxy_ForwardsData(t *testing.T) {
 	echoPort := startUDPEchoServer(t)
 	s := newIntegrationServer(t, "127.0.0.1")
 
-	// Register with ListenPort: 0 so the OS picks the proxy listen port.
-	s.RegisterTarget(docker.TargetInfo{
+	s.RegisterTarget(types.TargetInfo{
 		ContainerID:   "ctr-udp",
 		ContainerName: "echo-udp",
 		Running:       true,
-		UDPPorts:      []docker.PortMapping{{ListenPort: 0, TargetPort: echoPort}},
+		UDPPorts:      []types.PortMapping{{ListenPort: 0, TargetPort: echoPort}},
 	})
 
-	// The entry is stored at key 0; read the actual bound port from the conn.
 	uls, ok := s.udpTargets[0]
 	if !ok {
 		t.Fatal("UDP target not registered")
 	}
 	proxyPort := uls.listenConn.LocalAddr().(*net.UDPAddr).Port
 
-	// Dial the proxy UDP port so we can send and receive on a fixed local addr.
 	clientConn, err := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: proxyPort})
 	if err != nil {
 		t.Fatalf("dial proxy UDP: %v", err)

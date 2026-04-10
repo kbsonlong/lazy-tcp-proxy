@@ -6,17 +6,20 @@ on:
   pull_request:
     branches: ["**"]
 
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version-file: lazy-tcp-proxy/go.mod
           cache-dependency-path: lazy-tcp-proxy/go.sum
-      - uses: golangci/golangci-lint-action@v8
+      - uses: golangci/golangci-lint-action@v9
         with:
           working-directory: lazy-tcp-proxy
 
@@ -24,8 +27,8 @@ jobs:
     name: Test & Build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version-file: lazy-tcp-proxy/go.mod
           cache-dependency-path: lazy-tcp-proxy/go.sum
@@ -38,3 +41,9 @@ jobs:
       - name: test
         working-directory: lazy-tcp-proxy
         run: go test -race -count=1 ./...
+      - name: build (kubernetes)
+        working-directory: lazy-tcp-proxy
+        run: go build -tags kubernetes ./...
+      - name: test (kubernetes)
+        working-directory: lazy-tcp-proxy
+        run: go test -tags kubernetes -race -count=1 ./...

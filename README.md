@@ -11,7 +11,7 @@
 
 `lazy-tcp-proxy` allows you to run many Dockerized services on a single host, but only start containers when a connection arrives. It stops containers after a configurable idle timeout, saving resources while providing seamless access.
 
-Supported architectures: `linux/amd64`, `linux/arm64`, `linux/arm/v7`, `linux/arm/v6`
+Supported architectures: `linux/amd64`, `linux/arm64`, `linux/arm/v7`
 
 ### Why:
 
@@ -27,6 +27,14 @@ To save compute resources (CPU, RAM, Electricity) on a single host by keeping co
 
 ## Quick Start
 
+The quickest way to get started is to use the [docker-compose "recipes"](recipes).
+
+These have many common services, with preconfigured options, so you can pick and choose.
+
+(Don't forget to run [docker-compose.lazy-tcp-proxy.yml](recipes/docker-compose.lazy-tcp-proxy.yml))
+
+Otherwise you can always run the container from the command line. You will need to add labels to your managed containers (see below).
+
 ```sh
 docker run -d \
 	-v /var/run/docker.sock:/var/run/docker.sock \
@@ -39,10 +47,6 @@ docker run -d \
 	mountainpass/lazy-tcp-proxy
 ```
 
-Then add labels to new or existing containers (see below).
-
-Or start with the example project - [`example/docker-compose.yml`](example/docker-compose.yml).
-
 ---
 
 ## Container Label Configuration
@@ -52,11 +56,17 @@ Add these labels to any container you want proxied/managed:
 | Label | Required | Description |
 |-------|----------|-------------|
 | `lazy-tcp-proxy.enabled` | Yes | Must be `true` to opt the container in |
-| `lazy-tcp-proxy.ports` | Yes | Comma-separated `<listen>:<target>` TCP port pairs |
-| `lazy-tcp-proxy.udp-ports` | No | Comma-separated `<listen>:<target>` UDP port pairs (see [UDP Support](#udp-support)) |
+| `lazy-tcp-proxy.ports` | Yes* | Comma-separated `<listen>:<target>` TCP port pairs |
+| `lazy-tcp-proxy.udp-ports` | Yes* | Comma-separated `<listen>:<target>` UDP port pairs (see [UDP Support](#udp-support)) |
 | `lazy-tcp-proxy.allow-list` | No | Comma-separated IPs/CIDRs. If set, only matching source addresses are forwarded; all others are silently dropped |
 | `lazy-tcp-proxy.block-list` | No | Comma-separated IPs/CIDRs. If set, matching source addresses are silently dropped; all others are forwarded |
+| `lazy-tcp-proxy.idle-timeout-secs` | No | Override the global `IDLE_TIMEOUT_SECS` for this container only (seconds). `0` = stop immediately when the last connection closes |
 | `lazy-tcp-proxy.webhook-url` | No | HTTP(S) URL to POST lifecycle events to (see [Webhooks](#webhooks)) |
+| `lazy-tcp-proxy.dependants` | No | Comma-separated names of other managed containers/deployments that should start and stop alongside this one (see [Dependency Cascade](#dependency-cascade)) |
+| `lazy-tcp-proxy.cron-start` | No | 5-field cron expression — start the container/deployment on this schedule (see [Cron Scheduling](#cron-scheduling)) |
+| `lazy-tcp-proxy.cron-stop` | No | 5-field cron expression — stop the container/deployment on this schedule (see [Cron Scheduling](#cron-scheduling)) |
+
+\* At least one of `lazy-tcp-proxy.ports` or `lazy-tcp-proxy.udp-ports` must be set. A container may use TCP only, UDP only, or both.
 
 Both `allow-list` and `block-list` accept plain IP addresses (e.g. `127.0.0.1`, `::1`) and CIDR ranges (e.g. `192.168.0.0/16`, `fd00::/8`). If both labels are set, the allow-list is evaluated first. Blocked connections are logged with a red `(blocked)` suffix and do **not** wake the container.
 
@@ -76,7 +86,7 @@ labels:
 
 | Variable            | Description                                                        | Default                   |
 |---------------------|--------------------------------------------------------------------|---------------------------|
-| `IDLE_TIMEOUT_SECS` | How long (in seconds) a container must be idle before being stopped| 120                       |
+| `IDLE_TIMEOUT_SECS` | How long (in seconds) a container must be idle before being stopped. `0` = stop immediately once all connections close | 120                       |
 | `POLL_INTERVAL_SECS`| How often (in seconds) to check for idle containers                | 15                        |
 | `DOCKER_SOCK`       | Path to Docker socket                                              | `/var/run/docker.sock`    |
 | `STATUS_PORT`       | Port for the HTTP status server; set to `0` to disable            | 8080                      |
@@ -91,7 +101,7 @@ The proxy exposes a lightweight HTTP server for operational visibility.
 
 ### `GET /status`
 
-Returns a JSON array of all currently managed containers and their state.
+Returns a JSON array of all currently managed containers and their state, sorted alphabetically by container name (then by container ID as a tie-breaker).
 
 `last_active` shows when a container last handled traffic (falling back to the proxy start time if it has never been used). `last_active_relative` shows the same information in human-readable form, making it easy to spot long-idle containers at a glance — handy for identifying decommissioning candidates.
 
@@ -102,16 +112,6 @@ curl http://localhost:8080/status
 ```json
 [
   {
-    "container_id": "a1b2c3d4e5f6",
-    "container_name": "my-service",
-    "listen_port": 9000,
-    "target_port": 80,
-    "running": true,
-    "active_conns": 1,
-    "last_active": "2026-04-01T12:34:56Z",
-    "last_active_relative": "8 hours ago"
-  },
-  {
     "container_id": "b2c3d4e5f6a1",
     "container_name": "idle-service",
     "listen_port": 9001,
@@ -120,6 +120,16 @@ curl http://localhost:8080/status
     "active_conns": 0,
     "last_active": "2026-04-01T08:00:00Z",
     "last_active_relative": "3 days ago"
+  },
+  {
+    "container_id": "a1b2c3d4e5f6",
+    "container_name": "my-service",
+    "listen_port": 9000,
+    "target_port": 80,
+    "running": true,
+    "active_conns": 1,
+    "last_active": "2026-04-01T12:34:56Z",
+    "last_active_relative": "8 hours ago"
   }
 ]
 ```
@@ -163,15 +173,49 @@ labels:
 
 Containers can declare a webhook URL via the `lazy-tcp-proxy.webhook-url` label. The proxy will POST a JSON payload to that URL on the following events:
 
-| Event | When |
-|-------|------|
-| `container_started` | Proxy successfully started the container on an inbound connection |
-| `container_stopped` | Proxy stopped the container due to idle timeout |
+| Event | When | `connection_id` | `remote_addr` / `remote_port` |
+|-------|------|-----------------|-------------------------------|
+| `container_started` | Proxy successfully started the container on an inbound connection | No | No |
+| `container_stopped` | Proxy stopped the container due to idle timeout | No | No |
+| `tcp_conn_start` | An inbound TCP connection was accepted (after allow/block-list check) | Yes | Yes |
+| `tcp_conn_end` | That TCP connection has closed | Yes | Yes |
+| `udp_flow_start` | A new UDP flow was established from a client (after allow/block-list check) | Yes | Yes |
+| `udp_flow_end` | That UDP flow expired due to idle timeout | Yes | Yes |
 
-**Payload**:
+- `connection_id` — UUID v4 shared by the start and end pair, allowing external systems to correlate them and measure duration.
+- `remote_addr` — client IP address (no port).
+- `remote_port` — client port as an integer.
+
+**Container lifecycle payload** (`container_started` / `container_stopped`):
 ```json
 {
   "event": "container_started",
+  "container_id": "a1b2c3d4e5f6",
+  "container_name": "my-service",
+  "timestamp": "2026-04-01T12:34:56Z"
+}
+```
+
+**TCP connection payload** (`tcp_conn_start` / `tcp_conn_end`):
+```json
+{
+  "event": "tcp_conn_start",
+  "connection_id": "550e8400-e29b-41d4-a716-446655440000",
+  "remote_addr": "192.168.1.42",
+  "remote_port": 54321,
+  "container_id": "a1b2c3d4e5f6",
+  "container_name": "my-service",
+  "timestamp": "2026-04-01T12:34:56Z"
+}
+```
+
+**UDP flow payload** (`udp_flow_start` / `udp_flow_end`):
+```json
+{
+  "event": "udp_flow_start",
+  "connection_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "remote_addr": "192.168.1.42",
+  "remote_port": 61234,
   "container_id": "a1b2c3d4e5f6",
   "container_name": "my-service",
   "timestamp": "2026-04-01T12:34:56Z"
@@ -187,6 +231,115 @@ labels:
   - "lazy-tcp-proxy.ports=9000:80"
   - "lazy-tcp-proxy.webhook-url=https://hooks.example.com/my-service"
 ```
+
+---
+
+## Cron Scheduling
+
+Use `lazy-tcp-proxy.cron-start` and `lazy-tcp-proxy.cron-stop` to start and stop a container (or Kubernetes Deployment) on a fixed schedule. Both labels accept a standard **5-field cron expression** (`minute hour day-of-month month day-of-week`).
+
+Either label may be set independently — you do not need both.
+
+> **Note:** Containers with either cron label are **exempt from the idle-timeout inactivity checker**. They manage their own lifecycle via the schedule. The idle timer is still active for all other containers.
+
+**Docker example — business hours only (Mon–Fri, 08:30–17:30):**
+
+```yaml
+services:
+  my-db:
+    image: postgres:16
+    labels:
+      lazy-tcp-proxy.enabled: "true"
+      lazy-tcp-proxy.ports: "5432:5432"
+      lazy-tcp-proxy.cron-start: "30 8 * * 1-5"   # Start Mon–Fri at 08:30
+      lazy-tcp-proxy.cron-stop:  "30 17 * * 1-5"  # Stop  Mon–Fri at 17:30
+```
+
+**Kubernetes example:**
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-db
+  annotations:
+    lazy-tcp-proxy.enabled: "true"
+    lazy-tcp-proxy.ports: "5432:5432"
+    lazy-tcp-proxy.cron-start: "30 8 * * 1-5"   # Start Mon–Fri at 08:30
+    lazy-tcp-proxy.cron-stop:  "30 17 * * 1-5"  # Stop  Mon–Fri at 17:30
+```
+
+**Cron expression reference:**
+
+```
+┌─────────── minute        (0–59)
+│ ┌───────── hour          (0–23)
+│ │ ┌─────── day of month  (1–31)
+│ │ │ ┌───── month         (1–12)
+│ │ │ │ ┌─── day of week   (0–6, Sunday=0)
+│ │ │ │ │
+* * * * *
+```
+
+Common examples:
+
+| Expression | Meaning |
+|------------|---------|
+| `30 8 * * 1-5` | 08:30 every weekday |
+| `0 22 * * *` | 22:00 every day |
+| `0 0 1 * *` | Midnight on the 1st of each month |
+
+Schedules fire in the proxy's local timezone (UTC by default; set the `TZ` environment variable to override, e.g. `TZ=America/New_York`).
+
+If the container is already in the desired state when a schedule fires (e.g. already running when `cron-start` triggers), the proxy logs the fact and takes no action.
+
+---
+
+## Dependency Cascade
+
+Use `lazy-tcp-proxy.dependants` to declare a list of other managed containers
+(or Kubernetes Deployments) that should start and stop automatically whenever
+this container starts or stops.
+
+**When to use it:** Hub-and-node patterns where the hub container acts as a
+broker or event bus and the nodes are useless without it — for example, a
+Selenium Grid hub with browser nodes.
+
+```yaml
+services:
+  selenium-hub:
+    image: selenium/hub:4.21.0
+    labels:
+      lazy-tcp-proxy.enabled: "true"
+      lazy-tcp-proxy.ports: "4444:4444"
+      lazy-tcp-proxy.dependants: "selenium-chromium,selenium-firefox"
+
+  selenium-chromium:
+    image: selenium/node-chromium:4.21.0
+    labels:
+      lazy-tcp-proxy.enabled: "true"
+      lazy-tcp-proxy.ports: "5900:5900"
+    environment:
+      SE_EVENT_BUS_HOST: selenium-hub
+
+  selenium-firefox:
+    image: selenium/node-firefox:4.21.0
+    labels:
+      lazy-tcp-proxy.enabled: "true"
+      lazy-tcp-proxy.ports: "5901:5900"
+    environment:
+      SE_EVENT_BUS_HOST: selenium-hub
+```
+
+**Cascade rules:**
+- When the hub starts (traffic arrives or external `docker start`), all listed
+  dependants are started immediately.
+- When the hub stops (idle timeout or external `docker stop`), all listed
+  dependants are stopped.
+- Values are the `ContainerName` / Deployment name of each managed dependant.
+- If a dependant is already running/stopped, the cascade is a no-op.
+- Works with both the Docker and Kubernetes images (use Deployment
+  annotations instead of labels in k8s mode).
 
 ---
 

@@ -1,0 +1,23 @@
+services:
+  selenium:
+    container_name: selenium-chromium
+    image: selenium/standalone-chromium:4.40.0
+    platform: linux/arm64 # required for mac
+#    ports:
+#      - "4444:4444"
+#      - "7900:7900" # VNC port for viewing browser sessions
+    shm_size: "2g"
+    environment:
+      - SE_VNC_NO_PASSWORD=1 # Allows VNC access without password
+      - SE_NODE_MAX_SESSIONS=5 # Maximum concurrent sessions
+      - SE_SESSION_TIMEOUT=900 # 15 minutes
+      - SE_NODE_SESSION_TIMEOUT=900
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4444/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "lazy-tcp-proxy.enabled=true"
+      - "lazy-tcp-proxy.ports=4444:4444,7900:7900"

@@ -6,25 +6,62 @@ env:
 scripts:
   clean:
     $cmd: |
-      docker compose down
-      docker rmi lazy-tcp-proxy
-      docker rmi mountainpass/lazy-tcp-proxy
+      docker compose -f recipes/docker-compose.lazy-tcp-proxy.yml down || true
+      docker stop lazy-tcp-proxy example-lazy-tcp-proxy || true
+      docker rm lazy-tcp-proxy example-lazy-tcp-proxy || true
+      docker rmi lazy-tcp-proxy || true
+      docker rmi mountainpass/lazy-tcp-proxy || true
 
   build:
     $cmd: |
-      docker compose down
-      docker rmi lazy-tcp-proxy
-      docker rmi mountainpass/lazy-tcp-proxy
-      docker compose build
-      docker compose up
+      docker compose -f recipes/docker-compose.lazy-tcp-proxy.yml down || true
+      docker stop lazy-tcp-proxy example-lazy-tcp-proxy || true
+      docker rm lazy-tcp-proxy example-lazy-tcp-proxy || true
+      docker rmi lazy-tcp-proxy || true
+      docker rmi mountainpass/lazy-tcp-proxy || true
+      docker build ./lazy-tcp-proxy/ -t lazy-tcp-proxy
+
+  up:
+    $cmd: |
+      docker run -d \
+        -v /var/run/docker.sock:/var/run/docker.sock \
+        -e IDLE_TIMEOUT_SECS=30 \
+        -e POLL_INTERVAL_SECS=5 \
+        -p "8080:8080" \
+        -p "9000-9099:9000-9099" \
+        --restart=always \
+        --name lazy-tcp-proxy \
+        lazy-tcp-proxy
 
   publish:
     $cmd: |
       cd lazy-tcp-proxy
       VERSION=1.`date +%Y%m%d`.`git rev-parse --short=8 HEAD`
       docker buildx build \
-        --platform linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6 \
-        --tag mountainpass/lazy-tcp-proxy:$VERSION \
+        --platform linux/amd64,linux/arm64,linux/arm/v7 \
+        --tag mountainpass/lazy-tcp-proxy:docker-$VERSION \
         --tag mountainpass/lazy-tcp-proxy:latest \
         --push \
         .
+
+  publish-k8s:
+    $cmd: |
+      cd lazy-tcp-proxy
+      VERSION=1.`date +%Y%m%d`.`git rev-parse --short=8 HEAD`
+      docker buildx build \
+        --platform linux/amd64,linux/arm64 \
+        --build-arg BUILD_TAGS=kubernetes \
+        --tag mountainpass/lazy-tcp-proxy:k8s-$VERSION \
+        --push \
+        .
+
+  ghsetup:
+    $cmd: |
+      gh auth login
+      gh repo set-default
+
+  release:
+    $cmd: |
+      VERSION=1.`date +%Y%m%d`.`git rev-parse --short=8 HEAD`
+      DOCKERHUB_URL=https://hub.docker.com/repository/docker/mountainpass/lazy-tcp-proxy/tags/$VERSION/
+      gh release create "$VERSION" --title "$VERSION" --notes "Docker image: $DOCKERHUB_URL"
