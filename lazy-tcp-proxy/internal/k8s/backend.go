@@ -137,7 +137,6 @@ func (b *Backend) WatchEvents(ctx context.Context, handler types.TargetHandler) 
 			continue
 		}
 
-		backoff = time.Second
 		log.Printf("k8s: watching deployments...")
 
 		for event := range watcher.ResultChan() {
