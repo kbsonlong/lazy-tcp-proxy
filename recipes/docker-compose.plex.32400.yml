@@ -15,6 +15,16 @@ services:
     volumes:
       - ./plex:/config
       - /shared:/shared
+    # ports:
+      # - "32400:32400"
+      # - "8324:8324"
+      # - "32469:32469"
+      # - "1900:1900/udp"
+      # - "5353:5353/udp"
+      # - "32410:32410/udp"
+      # - "32412:32412/udp"
+      # - "32413:32413/udp"
+      # - "32414:32414/udp"
     deploy:
       resources:
         reservations:
@@ -23,4 +33,5 @@ services:
     runtime: nvidia
     labels:
       - "lazy-tcp-proxy.enabled=true"
-      - "lazy-tcp-proxy.ports=32400:32400"
+      - "lazy-tcp-proxy.ports=32400:32400,8324:8324,32469:32469"
+      - "lazy-tcp-proxy.udp-ports=1900:1900,5353:5353,32410:32410,32412:32412,32413:32413,32414:32414"

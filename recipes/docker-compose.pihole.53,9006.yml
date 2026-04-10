@@ -1,0 +1,27 @@
+services:
+  pihole:
+    image: pihole/pihole
+    container_name: pihole
+    environment:
+      TZ: ${TZ:-UTC}
+      FTLCONF_webserver_api_password: ${WEBPASSWORD:-password}  
+      FTLCONF_webserver_port: '8082,443s'
+      FTLCONF_dns_upstreams: |-
+        8.8.8.8
+        8.8.4.4
+        1.1.1.1
+        9.9.9.9        
+      FTLCONF_misc_dnsmasq_lines: |-
+        address=/example.com/192.168.1.1
+        address=/example.org/192.168.1.2
+        address=/example.net/192.168.1.3
+    volumes:
+      - ./pihole/etc:/etc/pihole
+      - ./pihole/dnsmasq:/etc/dnsmasq.d
+    labels:
+      - "lazy-tcp-proxy.enabled=true"
+      # Port 53 requires elevated privileges on Linux - you may need to set
+      # net.ipv4.ip_unprivileged_port_start=53 or run the proxy as root
+      - "lazy-tcp-proxy.ports=53:53,9006:443"
+      - "lazy-tcp-proxy.udp-ports=53:53"
+
