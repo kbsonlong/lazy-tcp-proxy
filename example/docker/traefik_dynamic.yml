@@ -1,0 +1,31 @@
+http:
+  routers:
+    immich:
+      rule: Host(`immich.kbsonlong.com`)
+      entryPoints:
+        - web
+      service: immich
+    homeassistant:
+      rule: Host(`ha.kbsonlong.com`)
+      entryPoints:
+        - web
+      service: homeassistant
+    searxng:
+      rule: Host(`searx.kbsonlong.com`)
+      entryPoints:
+        - web
+      service: searxng
+
+  services:
+    immich:
+      loadBalancer:
+        servers:
+          - url: http://lazy-tcp-proxy:9001
+    homeassistant:
+      loadBalancer:
+        servers:
+          - url: http://lazy-tcp-proxy:9002
+    searxng:
+      loadBalancer:
+        servers:
+          - url: http://lazy-tcp-proxy:9003

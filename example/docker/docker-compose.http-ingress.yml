@@ -1,0 +1,31 @@
+services:
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik
+    command:
+      - --entryPoints.web.address=:80
+      - --providers.file.filename=/etc/traefik/dynamic.yml
+      - --providers.file.watch=true
+    ports:
+      - 80:80
+    volumes:
+      - ./traefik_dynamic.yml:/etc/traefik/dynamic.yml:ro
+    networks:
+      - ingress
+
+  lazy-tcp-proxy:
+    image: mountainpass/lazy-tcp-proxy
+    container_name: lazy-tcp-proxy
+    environment:
+      - IDLE_TIMEOUT_SECS=120
+      - POLL_INTERVAL_SECS=15
+      - STATUS_PORT=8080
+    ports:
+      - 127.0.0.1:8080:8080
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - ingress
+
+networks:
+  ingress: {}

@@ -172,6 +172,9 @@ func TestSnapshot_Fields(t *testing.T) {
 	if e.LastActiveRelative == "" {
 		t.Error("LastActiveRelative: expected non-empty string")
 	}
+	if e.CascadeLocked {
+		t.Error("CascadeLocked: expected false")
+	}
 }
 
 func TestSnapshot_NeverActiveFallsBackToStartTime(t *testing.T) {
@@ -190,6 +193,24 @@ func TestSnapshot_NeverActiveFallsBackToStartTime(t *testing.T) {
 	}
 	if snap[0].LastActiveRelative == "" {
 		t.Error("LastActiveRelative should be non-empty")
+	}
+}
+
+func TestSnapshot_CascadeLocked(t *testing.T) {
+	s := newTestServer()
+	s.cascadeParents["ctr-1"] = map[string]struct{}{"up-1": {}}
+	s.targets[9000] = &targetState{
+		info:       types.TargetInfo{ContainerID: "ctr-1", ContainerName: "svc"},
+		targetPort: 80,
+		running:    true,
+		lastActive: time.Now(),
+	}
+	snap := s.Snapshot()
+	if len(snap) != 1 {
+		t.Fatalf("expected 1 snapshot entry, got %d", len(snap))
+	}
+	if !snap[0].CascadeLocked {
+		t.Error("CascadeLocked: expected true")
 	}
 }
 
@@ -245,6 +266,83 @@ func TestRegisterTarget_UDPPortConflict(t *testing.T) {
 
 	if s.udpTargets[listenPort].info.ContainerID != "container-a" {
 		t.Error("conflict: container-a's UDP registration should not have been replaced")
+	}
+}
+
+func TestRegisterTarget_RunningTransitionRefreshesLastActive_TCP(t *testing.T) {
+	s := newTestServer()
+
+	ln, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatalf("could not open test listener: %v", err)
+	}
+	defer ln.Close() //nolint:errcheck
+	listenPort := ln.Addr().(*net.TCPAddr).Port
+
+	ts := &targetState{
+		info:       types.TargetInfo{ContainerID: "ctr-1", ContainerName: "svc"},
+		targetPort: 80,
+		listener:   ln,
+		running:    false,
+		lastActive: time.Time{},
+	}
+	s.targets[listenPort] = ts
+
+	before := time.Now()
+	s.RegisterTarget(types.TargetInfo{
+		ContainerID:   "ctr-1",
+		ContainerName: "svc",
+		Running:       true,
+		Ports:         []types.PortMapping{{ListenPort: listenPort, TargetPort: 80}},
+	})
+
+	if ts.lastActive.IsZero() {
+		t.Fatal("expected lastActive to be refreshed on running transition")
+	}
+	if ts.lastActive.Before(before) {
+		t.Fatalf("expected lastActive >= %v, got %v", before, ts.lastActive)
+	}
+}
+
+func TestRegisterTarget_RunningTransitionRefreshesLastActive_UDP(t *testing.T) {
+	s := newTestServer()
+
+	pc, err := net.ListenPacket("udp", ":0")
+	if err != nil {
+		t.Fatalf("could not open test UDP listener: %v", err)
+	}
+	defer pc.Close() //nolint:errcheck
+	listenPort := pc.LocalAddr().(*net.UDPAddr).Port
+
+	uls := &udpListenerState{
+		listenConn:  pc.(*net.UDPConn),
+		targetPort:  53,
+		info:        types.TargetInfo{ContainerID: "ctr-udp", ContainerName: "dns"},
+		lastActive:  time.Time{},
+		idleTimeout: nil,
+		running:     false,
+		flows:       make(map[string]*udpFlow),
+		pending:     make(map[string]bool),
+	}
+	s.udpTargets[listenPort] = uls
+
+	before := time.Now()
+	s.RegisterTarget(types.TargetInfo{
+		ContainerID:   "ctr-udp",
+		ContainerName: "dns",
+		Running:       true,
+		UDPPorts:      []types.PortMapping{{ListenPort: listenPort, TargetPort: 53}},
+	})
+
+	uls.mu.Lock()
+	la := uls.lastActive
+	uls.mu.Unlock()
+
+	if la.IsZero() {
+		t.Fatal("expected UDP lastActive to be refreshed on running transition")
+	}
+	if la.Before(before) {
+		t.Fatalf("expected UDP lastActive >= %v, got %v", before, la)
 	}
 }
 
@@ -331,6 +429,27 @@ func TestCheckInactivity_DoesNotStopAlreadyStopped(t *testing.T) {
 	select {
 	case <-stopped:
 		t.Error("should not stop already-stopped container")
+	default:
+	}
+}
+
+func TestCheckInactivity_CascadeLocked_SkipsIdleStop(t *testing.T) {
+	stopped := make(chan string, 1)
+	s := newTestServerWithStopper(func(id string) { stopped <- id })
+
+	s.cascadeParents["ctr-1"] = map[string]struct{}{"up-1": {}}
+	s.targets[9000] = &targetState{
+		info:       types.TargetInfo{ContainerID: "ctr-1", ContainerName: "svc"},
+		targetPort: 80,
+		running:    true,
+		lastActive: time.Time{}, // never active
+	}
+
+	s.checkInactivity(context.Background())
+
+	select {
+	case <-stopped:
+		t.Error("should not stop cascade-locked container")
 	default:
 	}
 }
@@ -555,6 +674,7 @@ func newTestServer() *ProxyServer {
 		targets:      make(map[int]*targetState),
 		udpTargets:   make(map[int]*udpListenerState),
 		nameToID:     make(map[string]string),
+		cascadeParents: make(map[string]map[string]struct{}),
 		idleTimeout:  5 * time.Minute,
 		pollInterval: 15 * time.Second,
 		startTime:    time.Now().Add(-1 * time.Hour),

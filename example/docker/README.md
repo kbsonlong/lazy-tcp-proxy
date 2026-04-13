@@ -102,3 +102,63 @@ Add `-v` to also remove the persistent volumes (postgres and mongo data):
 ```bash
 docker compose down -v
 ```
+
+---
+
+## HTTP Ingress on 80 (Cloudflare Tunnel TLS) + Traefik + lazy-tcp-proxy
+
+If most of your services are HTTP, you can avoid exposing a large port range by putting an L7 reverse proxy (Traefik) in front and only publishing port **80** on the host.
+
+Traefik routes by Host header to `lazy-tcp-proxy` on an internal Docker network, and `lazy-tcp-proxy` then starts the real target container on-demand and forwards to its internal port.
+
+### Start ingress stack
+
+```bash
+cd example/docker
+docker compose -f docker-compose.http-ingress.yml up -d
+```
+
+This starts:
+- `traefik` publishing `80:80`
+- `lazy-tcp-proxy` (no published per-service HTTP ports; status is bound to `127.0.0.1:8080`)
+
+### Configure routing (Traefik)
+
+The example `traefik_dynamic.yml` is preconfigured for:
+- `immich.kbsonlong.com`
+- `ha.kbsonlong.com`
+- `searx.kbsonlong.com`
+
+If you want different names, edit `traefik_dynamic.yml` accordingly.
+
+If you use Cloudflare Tunnel and terminate TLS at Cloudflare, configure the tunnel to forward these hostnames to:
+- `http://<your-docker-host>:80`
+
+### Configure targets (labels)
+
+You must set labels at container creation time (Docker does not support updating labels on an existing container). If you already have these running, recreate them with labels in their own compose files.
+
+Example labels (add these to each target container):
+
+**immich-server → internal port 2283**
+```yaml
+labels:
+  - "lazy-tcp-proxy.enabled=true"
+  - "lazy-tcp-proxy.ports=9001:2283"
+```
+
+**homeassistant → internal port 8123**
+```yaml
+labels:
+  - "lazy-tcp-proxy.enabled=true"
+  - "lazy-tcp-proxy.ports=9002:8123"
+```
+
+**searxng → internal port 8080**
+```yaml
+labels:
+  - "lazy-tcp-proxy.enabled=true"
+  - "lazy-tcp-proxy.ports=9003:8080"
+```
+
+Once those containers exist with labels, `lazy-tcp-proxy` discovers them and begins listening on ports `9001-9003` inside the Docker network. Traefik can then reach them without publishing those ports on the host.
